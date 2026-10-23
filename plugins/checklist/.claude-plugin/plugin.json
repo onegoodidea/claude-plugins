@@ -1,0 +1,7 @@
+{
+  "name": "checklist",
+  "description": "Checklist: a pane of this session’s follow-ups (now, up next, proposed, and done), opened with /checklist.",
+  "author": { "name": "One Good Idea" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

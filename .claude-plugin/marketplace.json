@@ -1,0 +1,14 @@
+{
+  "name": "onegoodidea",
+  "owner": { "name": "One Good Idea" },
+  "metadata": {
+    "description": "Claude Code plugins from One Good Idea."
+  },
+  "plugins": [
+    {
+      "name": "checklist",
+      "source": "./plugins/checklist",
+      "description": "A pane beside the chat that keeps a session’s follow-ups: Now, Up next, Proposed, and Done."
+    }
+  ]
+}
