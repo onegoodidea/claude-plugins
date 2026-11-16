@@ -54,7 +54,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'checklist',
       description: 'Show this session’s checklist; “review” walks through the open items',
-      argumentHint: '[review | wrap <factor>]',
+      argumentHint: '[review | widget | wrap <factor>]',
     })
 
     try {
@@ -110,8 +110,14 @@ export const register: Register = on => {
       submitSoon($, REVIEW_PROMPT)
       return { text: 'Reviewing the open checklist items.' }
     }
+    if (args === 'widget') {
+      // The app reads a pane's placement when it first shows it: close, then reopen.
+      await $.ui.close({ id: PANE }).catch(() => undefined)
+      await openPane($, 'widget')
+      return { text: 'Checklist reopened as a widget, where the app has widgets.' }
+    }
     if (args !== '') {
-      return { text: 'Usage: /checklist (opens the pane), /checklist review, or /checklist wrap <factor>.' }
+      return { text: 'Usage: /checklist (opens the pane), /checklist review, /checklist widget, or /checklist wrap <factor>.' }
     }
     await openPane($)
     return { text: 'Checklist opened.' }

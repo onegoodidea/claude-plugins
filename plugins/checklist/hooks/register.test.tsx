@@ -37,6 +37,8 @@ function engine(on: On, sessionId: string, saved: Record<string, unknown> = {}, 
   const panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
   const store: Record<string, unknown> = { ...saved }
   const opened: string[] = []
+  const placements: (string | undefined)[] = []
+  const closed: string[] = []
   const prompts: string[] = []
   const redraws: string[] = []
 
@@ -55,9 +57,14 @@ function engine(on: On, sessionId: string, saved: Record<string, unknown> = {}, 
   on('ui.panes', () => ({ value: panes }))
   on('ui.open', (_, e) => {
     opened.push(e.id)
+    placements.push(e.placement)
     return opened.length > 1 || placed
       ? { value: { isPlaced: true as const } }
       : { value: { isPlaced: false as const, reason: 'too narrow' } }
+  })
+  on('ui.close', (_, e) => {
+    closed.push(e.id)
+    return { value: undefined }
   })
   on('prompt.submit', (_, e) => {
     prompts.push(e.text)
@@ -65,7 +72,7 @@ function engine(on: On, sessionId: string, saved: Record<string, unknown> = {}, 
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: 'ok' }))
-  return { store, opened, prompts, redraws, panes }
+  return { store, opened, placements, closed, prompts, redraws, panes }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -437,4 +444,52 @@ test('a pane the person closed stays closed after a restart; the band leads back
   expect(world.opened).toEqual(['checklist'])
   expect(world.store['closed:s16']).toBe(false)
   await band.unmount()
+})
+
+const WIDGET = { ...PANE, props: { ...PANE.props, placement: 'widget', anchoredEdges: [] } } as const
+
+test('as a widget: Now and the top of Up next, then counts; no buttons or field', async ($, on) => {
+  engine(on, 's17')
+  await start($)
+  const widget = await $.ui.mount({ ...WIDGET, surface: 'desktop' })
+  expect((await widget.find({ type: 'Text', text: /No tasks/ }))?.text).toBe('No tasks yet')
+
+  await call($, {
+    tool: TOOL,
+    add: [
+      { text: 'Draft the brief', status: 'in_progress' },
+      { text: 'One', status: 'next' },
+      { text: 'Two', status: 'next' },
+      { text: 'Three', status: 'next' },
+      { text: 'Four', status: 'next' },
+      { text: 'An idea' },
+    ],
+  })
+  expect((await widget.find({ type: 'Text', text: /Draft the brief/ }))?.text).toBe('Draft the brief')
+  expect(await widget.find({ type: 'Text', text: /^Three$/ })).toBeDefined()
+  expect(await widget.find({ type: 'Text', text: /^Four$/ })).toBeUndefined()
+  expect((await widget.find({ type: 'Text', text: /more up next/ }))?.text).toBe('1 more up next · 1 proposed')
+  expect(await widget.find({ key: 'add-task-0' })).toBeUndefined()
+  expect(await widget.find({ key: 'done-1' })).toBeUndefined()
+
+  await call($, { tool: TOOL, update: [1, 2, 3, 4, 5].map(id => ({ id, status: 'done' as const })) })
+  expect((await widget.find({ type: 'Text', text: /proposed/ }))?.text).toBe('1 proposed')
+  await call($, { tool: TOOL, remove: [6] })
+  expect((await widget.find({ type: 'Text', text: /left to do/ }))?.text).toBe('Nothing left to do')
+  await widget.unmount()
+})
+
+test('/checklist widget reopens the pane asking for a widget', async ($, on) => {
+  const world = engine(on, 's18')
+  await start($)
+  world.opened.length = 0
+  world.placements.length = 0
+  const ran = await ($ as Engine).command.run({ command: 'checklist', args: 'widget' })
+  expect(ran.text).toContain('widget')
+  expect(world.closed).toEqual(['checklist'])
+  expect(world.opened).toEqual(['checklist'])
+  expect(world.placements).toEqual(['widget'])
+  // A plain /checklist asks for no placement.
+  await ($ as Engine).command.run({ command: 'checklist', args: '' })
+  expect(world.placements).toEqual(['widget', undefined])
 })

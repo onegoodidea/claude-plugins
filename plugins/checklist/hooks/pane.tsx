@@ -6,7 +6,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { GroupRow, Task, TaskStatus } from '../types'
-import { EMPTY, addTask, isOpen, newestDone, nudge, reorder, setStatus } from './board'
+import { EMPTY, addTask, isOpen, newestDone, nudge, reorder, setStatus, summary } from './board'
 import { ALT, GLYPH, ICON } from './look'
 import {
   DEFAULT_WRAP_FACTOR,
@@ -38,6 +38,8 @@ export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     read($, wrapFactor),
     read($, addCount),
   ])
+  // Minimized to a widget (the desktop app): a glance, since clicks may not reach it.
+  if (e.props.placement === 'widget') return drawGlance($, e, tasks)
   cancelEditOnBlur($, PANE, e.props.isFocused, editing !== 0)
   // Where the surface draws list elements (terminal, desktop), groups are
   // drawn by them; mobile has none, nor text fields.
@@ -306,6 +308,62 @@ export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         </Box>
       )}
       {group('done', 'Done', done)}
+    </Box>
+  )
+}
+
+/** How many Up next items the widget lists; the rest are counted. */
+const GLANCE_UP_NEXT = 3
+
+// The widget: what's in progress and the top of Up next, one line each, then
+// counts for the rest. No buttons or field, since clicks may not reach it;
+// expanding the pane brings them back.
+function drawGlance($: EngineInterface, e: RenderInput<'Pane'>, tasks: readonly Task[]) {
+  const { Box, Text } = $.ui.resolve(e)
+  const of = (status: TaskStatus) => tasks.filter(task => task.status === status)
+  const now = of('in_progress')
+  const upNext = of('next')
+  const shown = upNext.slice(0, GLANCE_UP_NEXT)
+  const more = upNext.length - shown.length
+  const proposed = of('proposed').length
+
+  const mark = (status: TaskStatus) => {
+    if (e.surface === 'desktop') {
+      const { Svg } = $.ui.resolve(e)
+      return (
+        <Box height={1} flexShrink={0} alignItems="center" justifyContent="center">
+          <Svg source={ICON[status]} alt={ALT[status]} width={16} height={16} />
+        </Box>
+      )
+    }
+    return <Text dimColor>{GLYPH[status]}</Text>
+  }
+
+  const row = (task: Task) => (
+    <Box key={`glance-${task.id}`} flexDirection="row" alignItems="flex-start" gap={1}>
+      {mark(task.status)}
+      <Box flexGrow={1} flexShrink={1}>
+        <Text wrap="truncate-end">{task.text}</Text>
+      </Box>
+    </Box>
+  )
+
+  const rest = [more > 0 && `${more} more up next`, proposed > 0 && `${proposed} proposed`].filter(Boolean)
+
+  if (now.length === 0 && shown.length === 0) {
+    const text = proposed > 0 ? summary(tasks) : tasks.length > 0 ? 'Nothing left to do' : 'No tasks yet'
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" gap="xs">
+      {now.map(row)}
+      {shown.map(row)}
+      {rest.length > 0 && <Text dimColor>{rest.join(' · ')}</Text>}
     </Box>
   )
 }
