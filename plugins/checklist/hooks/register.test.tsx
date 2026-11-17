@@ -276,7 +276,9 @@ test('the edit field is as tall as a long item, and saves it as one line', async
   await ui.resize({ columns: 60, rows: 3, ...NOW })
   await click(ui, 5, 1, NOW)
   await click(ui, 5, 1, NOW)
-  expect(await rowsOf('editing-2')).toBe(2)
+  // The desktop draws the field about 25 characters wide: this item's 74
+  // take 3 rows, and a field of several rows gets one spare.
+  expect(await rowsOf('editing-2')).toBe(4)
   // Shift+Enter can type a newline into a field of several rows.
   await ui.input({ key: 'editing-2', text: 'Two lines\nmade one ' })
   expect(await call($, { tool: TOOL })).toContain('#2 [in_progress] Two lines made one')
