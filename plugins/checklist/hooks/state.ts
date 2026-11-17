@@ -71,9 +71,10 @@ export async function setClosedByPerson($: EngineInterface, isClosed: boolean) {
   await $.store.set(await closedKey($), isClosed)
 }
 
-export async function openPane($: EngineInterface) {
+/** `widget` asks the desktop app to start it minimized, where it has widgets. */
+export async function openPane($: EngineInterface, placement?: 'widget') {
   await setClosedByPerson($, false)
-  const opened = await $.ui.open({ id: PANE, title: TITLE })
+  const opened = await $.ui.open({ id: PANE, title: TITLE, ...(placement ? { placement } : {}) })
   await setPaneOpen($, opened.isPlaced)
 }
 

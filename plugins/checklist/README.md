@@ -35,6 +35,7 @@ In the Claude desktop app, where `/plugin` doesn’t run: click **+** next to th
   - Done: ×
 - **Remove an item:** press × once; it turns into “Remove?”. Press it again within 3 seconds to remove.
 - **Ask Claude:** “drop #3,” “move #6 to the top,” “mark #2 done,” and so on. Claude manages the list with the `mcp__checklist__tasks` tool.
+- **As a widget:** where the desktop app minimizes a pane to a widget, the Checklist shows a glance: what’s under Now, the top three of Up next, and counts for the rest. It has no buttons there, since clicks may not reach a widget; expand the pane to work the list. `/checklist widget` reopens the pane asking to start as a widget.
 - **New Task cards:** in the desktop app, cards Claude proposes for separate sessions show up as Proposed items, and dismissing a card removes its item.
 
 ### Commands
@@ -43,6 +44,7 @@ In the Claude desktop app, where `/plugin` doesn’t run: click **+** next to th
 | --- | --- |
 | `/checklist` | Opens the pane. |
 | `/checklist review` | Has Claude walk through the open items with you: keep, drop, or turn into a separate session. |
+| `/checklist widget` | Reopens the pane as a widget, where the desktop app has widgets. |
 | `/checklist wrap <factor>` | Tunes line wrapping in the desktop app (default 1.2; higher fits more on a line). |
 
 Before a `/clear` empties a list with open items, the first `/clear` starts that review instead. A second `/clear` within 10 minutes goes through.
