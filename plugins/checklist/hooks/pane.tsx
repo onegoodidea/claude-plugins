@@ -28,6 +28,16 @@ const addCount = atom({ plugin: 'checklist', key: 'addCount' } as const, 0)
 const confirmingRemoveId = atom({ plugin: 'checklist', key: 'confirmingRemoveId' } as const, 0)
 const editingId = atom({ plugin: 'checklist', key: 'editingId' } as const, 0)
 
+// The edit field's tallest, in rows; the width, in characters, the desktop app
+// draws it at; and, elsewhere, the columns beside it its row takes (Cancel,
+// the gap, the padding, and the ↵ drawn while it has focus).
+const EDIT_MAX_ROWS = 8
+const EDIT_FIELD_COLUMNS = 25
+const EDIT_ROW_CHROME = 12
+
+/** An item's text is one line: a typed or pasted newline is a space. */
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
+
 export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const { Box, Button, Text } = $.ui.resolve(e)
   const [{ tasks }, editing, confirming, reportedRows, factor, count] = await Promise.all([
@@ -88,19 +98,28 @@ export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     removeButton(id),
   ]
 
-  // The edit row: the app's own text field, with Cancel. Enter saves.
+  // The edit row: the app's own text field, with Cancel. Enter saves. The
+  // field is as many rows as the item's text needs, up to EDIT_MAX_ROWS, so
+  // a long item can be read whole while it's edited. A field of two or more
+  // rows gets one spare: the desktop draws each a little short, and the last
+  // line of text would be clipped.
   const editRow = (task: Task) => {
     const { Input } = $.ui.resolve(e as typeof e & { surface: 'desktop' })
+    const perRow =
+      e.surface === 'desktop' ? EDIT_FIELD_COLUMNS : Math.max(10, e.props.bodyColumns - EDIT_ROW_CHROME)
+    const needed = Math.min(EDIT_MAX_ROWS, Math.max(1, Math.ceil(task.text.length / perRow)))
+    const rows = needed > 1 ? needed + 1 : 1
     return (
       <Box key={`row-${task.id}`} flexDirection="row" alignItems="center" gap={1} padding="xs">
         <Box flexGrow={1} flexShrink={1}>
           <Input
             key={`editing-${task.id}`}
             value={task.text}
+            rows={rows}
             submitLabel="↵"
             autoFocus
             onSubmit={async text => {
-              const trimmed = text.trim()
+              const trimmed = oneLine(text)
               if (trimmed) {
                 await save($, current => ({
                   ...current,
@@ -253,7 +272,7 @@ export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     }
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold>
+        <Text weight="semibold">
           {heading} ({items.length})
         </Text>
         {top}
@@ -279,7 +298,7 @@ export async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
           placeholder="Add a task"
           submitLabel="↵"
           onSubmit={async text => {
-            const trimmed = text.trim()
+            const trimmed = oneLine(text)
             if (!trimmed) return
             await save($, current => addTask(current, trimmed, 'next'))
             await update($, addCount, n => n + 1)
