@@ -21,6 +21,7 @@ const BAND = {
   requestId: 'band',
   props: {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 6,
     bodyColumns: 80,
@@ -249,6 +250,36 @@ test('Now items: a double-click edits, with Cancel; Now can’t be dragged', asy
   await click(ui, 5, 0, NOW)
   await ui.press({ key: 'cancel-1' })
   expect(await ui.find({ key: 'editing-1' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the edit field is as tall as a long item, and saves it as one line', async ($, on) => {
+  engine(on, 's17')
+  await start($)
+  await ($ as Engine).command.run({ command: 'checklist', args: 'wrap 1' })
+  await call($, {
+    tool: TOOL,
+    add: [
+      { text: 'Short', status: 'in_progress' },
+      { text: 'A much longer item that has to wrap onto more than one line in the field', status: 'in_progress' },
+    ],
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.resize({ columns: 60, rows: 3, ...NOW })
+  const rowsOf = async (key: string) => ((await ui.find({ key }))?.props as { rows?: number } | undefined)?.rows
+
+  await click(ui, 5, 0, NOW)
+  await click(ui, 5, 0, NOW)
+  expect(await rowsOf('editing-1')).toBe(1)
+  await ui.press({ key: 'cancel-1' })
+
+  await ui.resize({ columns: 60, rows: 3, ...NOW })
+  await click(ui, 5, 1, NOW)
+  await click(ui, 5, 1, NOW)
+  expect(await rowsOf('editing-2')).toBe(2)
+  // Shift+Enter can type a newline into a field of several rows.
+  await ui.input({ key: 'editing-2', text: 'Two lines\nmade one ' })
+  expect(await call($, { tool: TOOL })).toContain('#2 [in_progress] Two lines made one')
   await ui.unmount()
 })
 
