@@ -1,6 +1,6 @@
 {
   "name": "context-strip",
-  "description": "Context strip: a row above the prompt showing how full the session’s context window is, with the checklist’s summary beside it when the checklist plugin is loaded.",
+  "description": "Context strip: a row above the prompt showing how full the session’s context window is, a count of running background tasks, and the checklist’s summary when the checklist plugin is loaded.",
   "author": { "name": "One Good Idea" },
   "license": "MIT",
   "types": "./types/index.d.ts"
