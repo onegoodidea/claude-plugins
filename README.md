@@ -7,6 +7,7 @@ A Claude Code plugin marketplace from [One Good Idea](https://github.com/onegood
 | Plugin | What it does |
 | --- | --- |
 | [checklist](plugins/checklist) | A pane beside the chat that keeps a session’s follow-ups, so you can come back to a session and see what’s left: Now, Up next, Proposed, and Done. |
+| [context-strip](plugins/context-strip) | A row above the prompt showing how full the session’s context window is, with the checklist’s summary beside it when both are installed. |
 
 ## Install
 
