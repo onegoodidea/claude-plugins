@@ -4,6 +4,18 @@ A Claude Code plugin that shows how full a session’s context window is in a ro
 
 The row reads **Context: 14%** at its right end. It turns to the warning color within 10 points of where auto-compact starts. Nothing shows until the session’s first response reports a reading.
 
+## Background tasks
+
+While background tasks are running, the strip shows a count of them just left of the context percentage:
+
+```
+Checklist: 2 up next          2 background tasks  Context: 14%
+```
+
+- It counts running subagents and teammates, background shells (started in the background or moved there with ctrl+b), monitors, and workflows.
+- With nothing running, the count doesn’t show.
+- Click it to open the app’s own background tasks view: the Tasks pane in the desktop app, or `/tasks` in a terminal.
+
 ## With the checklist plugin
 
 When the [checklist](../checklist) plugin is loaded too, the strip carries its summary at the left end, so the two share one row:
@@ -40,6 +52,7 @@ In the Claude desktop app, where `/plugin` doesn’t run: click **+** next to th
 ## Limits
 
 - **Updates:** the percentage moves after each turn, when Claude Code measures the session, not while a turn runs.
+- **Background task count:** Claude Code lists running agents to plugins but not shells, monitors, or workflows, so the strip keeps those from the tool calls that started them. A shell leaves the count within a few seconds of ending, stopped from the app included: the strip finds the shell’s processes once with `lsof` (who holds its output file open), then checks them every 3 seconds with `ps`, only while the count is above zero. A monitor or workflow leaves it when its completion notice reaches the session, which can wait for the next turn. A task started before the plugin loaded (or reloaded) isn’t counted.
 - **Checklist coupling:** the strip reads the checklist plugin’s saved list (`board`) and matches its summary wording. If those change in the checklist plugin, update `hooks/register.tsx` here too.
 
 ## Development
