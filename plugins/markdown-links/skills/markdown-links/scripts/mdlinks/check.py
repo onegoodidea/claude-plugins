@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import parse, paths, resolve
 from . import root as rootmod
@@ -84,12 +84,14 @@ def classify_body_wikilink(
     return hits[0], None
 
 
-def check_file(root: Root, note: Path) -> List[Finding]:
+def check_file(root: Root, note: Path, text: Optional[str] = None) -> List[Finding]:
+    """Findings for one note; text, when given, stands in for the note's contents on disk."""
     rel = rootmod.rel(root, note)
-    try:
-        text, _ = parse.read(note)
-    except UnicodeDecodeError:
-        return [Finding("warning", rel, 1, "not valid UTF-8; skipped")]
+    if text is None:
+        try:
+            text, _ = parse.read(note)
+        except UnicodeDecodeError:
+            return [Finding("warning", rel, 1, "not valid UTF-8; skipped")]
     findings: List[Finding] = []
     for link in parse.find_links(text):
         if link.kind in ("wiki", "embed"):
@@ -99,8 +101,9 @@ def check_file(root: Root, note: Path) -> List[Finding]:
     return findings
 
 
-def check_root(root: Root) -> List[Finding]:
+def check_root(root: Root, texts: Optional[Dict[Path, str]] = None) -> List[Finding]:
+    """Findings for every note; texts maps notes to contents that stand in for the disk."""
     findings: List[Finding] = []
     for note in root.notes:
-        findings.extend(check_file(root, note))
+        findings.extend(check_file(root, note, (texts or {}).get(note)))
     return findings

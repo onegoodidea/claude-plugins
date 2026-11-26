@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from . import check, parse, paths, resolve
 from . import root as rootmod
@@ -11,6 +12,14 @@ from .model import Finding, Link, Root
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif", ".bmp"}
 _SIZE = re.compile(r"\d+(?:x\d+)?")  # an embed alias that sets a size: 300 or 300x200
+
+
+@dataclass(frozen=True)
+class Change:
+    file: str  # POSIX path relative to the root
+    line: int
+    old: str  # the link as written
+    new: str  # the link convert writes
 
 
 def _escape(label: str) -> str:
@@ -56,9 +65,10 @@ def _repair_replacement(root: Root, note: Path, link: Link) -> Optional[str]:
     return parse.replace_target(link, paths.encode(paths.relative(note, found.path)))
 
 
-def convert_text(root: Root, note: Path, text: str) -> Tuple[str, int, List[Finding]]:
+def _edits(root: Root, note: Path, text: str) -> Tuple[List[Tuple[Link, str]], List[Finding]]:
+    """Each link convert rewrites with its new text, and the warnings for links it leaves."""
     rel = rootmod.rel(root, note)
-    edits: List[Tuple[int, int, str]] = []
+    edits: List[Tuple[Link, str]] = []
     warnings: List[Finding] = []
     for link in parse.find_links(text):
         if link.kind in ("wiki", "embed"):
@@ -70,16 +80,28 @@ def convert_text(root: Root, note: Path, text: str) -> Tuple[str, int, List[Find
         else:
             new = _repair_replacement(root, note, link)
         if new is not None and new != link.raw:
-            edits.append((link.start, link.end, new))
-    for start, end, new in reversed(edits):
-        text = text[:start] + new + text[end:]
-    return text, len(edits), warnings
+            edits.append((link, new))
+    return edits, warnings
 
 
-def convert_all(root: Root, dry_run: bool) -> Tuple[List[str], List[Finding], int]:
-    changed: List[str] = []
+def _apply(text: str, edits: List[Tuple[Link, str]]) -> str:
+    for link, new in reversed(edits):
+        text = text[:link.start] + new + text[link.end:]
+    return text
+
+
+def convert_text(root: Root, note: Path, text: str) -> Tuple[str, int, List[Finding]]:
+    edits, warnings = _edits(root, note, text)
+    return _apply(text, edits), len(edits), warnings
+
+
+def convert_all(
+    root: Root, dry_run: bool
+) -> Tuple[List[Change], List[Finding], Dict[Path, str]]:
+    """Every link change, the warnings for links left alone, and each changed note's new text."""
+    changes: List[Change] = []
     findings: List[Finding] = []
-    total = 0
+    texts: Dict[Path, str] = {}
     for note in root.notes:
         rel = rootmod.rel(root, note)
         try:
@@ -87,16 +109,17 @@ def convert_all(root: Root, dry_run: bool) -> Tuple[List[str], List[Finding], in
         except UnicodeDecodeError:
             findings.append(Finding("warning", rel, 1, "not valid UTF-8; skipped"))
             continue
-        new, count, warnings = convert_text(root, note, text)
+        edits, warnings = _edits(root, note, text)
         findings.extend(warnings)
-        if count:
-            changed.append(rel)
-            total += count
-            if not dry_run:
-                parse.write(note, new, bom)
-    return changed, findings, total
+        if not edits:
+            continue
+        changes.extend(Change(rel, link.line, link.raw, new) for link, new in edits)
+        texts[note] = _apply(text, edits)
+        if not dry_run:
+            parse.write(note, texts[note], bom)
+    return changes, findings, texts
 
 
 def convert_root(root: Root, dry_run: bool) -> Tuple[List[str], List[Finding]]:
-    changed, findings, _ = convert_all(root, dry_run)
-    return changed, findings
+    changes, findings, _ = convert_all(root, dry_run)
+    return list(dict.fromkeys(c.file for c in changes)), findings

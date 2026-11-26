@@ -21,12 +21,13 @@ OBSIDIAN_SETTINGS = {
 }
 
 
+def _finding_dict(f: Finding) -> dict:
+    return {"level": f.level, "file": f.file, "line": f.line, "message": f.message}
+
+
 def print_findings(findings: List[Finding], as_json: bool) -> None:
     if as_json:
-        print(json.dumps([
-            {"level": f.level, "file": f.file, "line": f.line, "message": f.message}
-            for f in findings
-        ], indent=2))
+        print(json.dumps([_finding_dict(f) for f in findings], indent=2))
     else:
         for f in findings:
             print(format_finding(f))
@@ -120,9 +121,18 @@ def _cmd_check(args) -> int:
     return _exit_code(findings)
 
 
-def _counts(findings: List[Finding]) -> str:
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def _tally(findings: List[Finding]) -> dict:
     errors = sum(f.level == "error" for f in findings)
-    return f"{errors} errors, {len(findings) - errors} warnings"
+    return {"errors": errors, "warnings": len(findings) - errors}
+
+
+def _counts(findings: List[Finding]) -> str:
+    t = _tally(findings)
+    return f"{_plural(t['errors'], 'error')}, {_plural(t['warnings'], 'warning')}"
 
 
 def _cmd_convert(args) -> int:
@@ -134,16 +144,30 @@ def _cmd_convert(args) -> int:
         print(f"error: convert works on a whole root; run it on {root.path}", file=sys.stderr)
         return 1
     before = checkmod.check_root(root)
-    changed, leftover, total = convertmod.convert_all(root, args.dry_run)
-    after = before if args.dry_run else checkmod.check_root(rootmod.load(root.path))
-    if not args.json:
+    changes, leftover, texts = convertmod.convert_all(root, args.dry_run)
+    if args.dry_run:
+        after = checkmod.check_root(root, texts)  # what a real run would leave
+    else:
+        after = checkmod.check_root(rootmod.load(root.path))
+    findings = [f for f in after if f.level == "error"] + leftover
+    if args.json:
+        print(json.dumps({
+            "changes": [{"file": c.file, "line": c.line, "old": c.old, "new": c.new}
+                        for c in changes],
+            "findings": [_finding_dict(f) for f in findings],
+            "before": _tally(before),
+            "after": _tally(after),
+        }, indent=2))
+    else:
         verb = "would convert" if args.dry_run else "converted"
-        print(f"{verb} {total} links in {len(changed)} files")
+        for c in changes:
+            print(f"{verb} {c.file}:{c.line}: {c.old} -> {c.new}")
+        files = len({c.file for c in changes})
+        print(f"{verb} {_plural(len(changes), 'link')} in {_plural(files, 'file')}")
         print(f"before: {_counts(before)}")
-        if not args.dry_run:
-            print(f"after: {_counts(after)}")
-    print_findings(leftover, args.json)
-    return _exit_code(after)
+        print(f"after: {_counts(after)}")
+        print_findings(findings, False)
+    return _exit_code(before if args.dry_run else after)  # a dry run leaves the disk as it was
 
 
 def _cmd_link(args) -> int:
@@ -172,17 +196,20 @@ def _cmd_mv(args) -> int:
     except movemod.MoveError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-    if not args.json:
-        shown = f"{rootmod.rel(root, plan.src)} -> {rootmod.rel(root, plan.dst)}"
-        if args.dry_run:
-            print(f"would move {shown}")
-            for path in sorted(plan.edits):
-                print(f"would update {rootmod.rel(root, path)}")
-        else:
-            print(f"moved {shown}")
-            for rel in changed:
-                print(f"updated {rel}")
-    print_findings(plan.warnings, args.json)
+    updated = [rootmod.rel(root, p) for p in sorted(plan.edits)] if args.dry_run else changed
+    if args.json:
+        print(json.dumps({
+            "moves": [{"from": rootmod.rel(root, a), "to": rootmod.rel(root, b)}
+                      for a, b in plan.moves],
+            "updated": updated,
+            "findings": [_finding_dict(f) for f in plan.warnings],
+        }, indent=2))
+        return 0
+    moved, update = ("would move", "would update") if args.dry_run else ("moved", "updated")
+    print(f"{moved} {rootmod.rel(root, plan.src)} -> {rootmod.rel(root, plan.dst)}")
+    for rel in updated:
+        print(f"{update} {rel}")
+    print_findings(plan.warnings, False)
     return 0
 
 
@@ -199,30 +226,37 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="markdown-links", description="Keep links between Markdown notes portable."
     )
-    parser.add_argument("--json", action="store_true", help="print findings as JSON")
+    json_help = "print machine-readable JSON (before or after the command)"
+    parser.add_argument("--json", action="store_true", help=json_help)
+    # Also accepted after the command; SUPPRESS keeps a --json given before it.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=json_help)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("init", help="create .markdown-links.json in a folder")
+    def add(name: str, **kw) -> argparse.ArgumentParser:
+        return sub.add_parser(name, parents=[common], **kw)
+
+    p = add("init", help="create .markdown-links.json in a folder")
     p.add_argument("folder", nargs="?", default=".")
     p.set_defaults(func=_cmd_init)
 
-    p = sub.add_parser("check", help="report broken or non-portable links")
+    p = add("check", help="report broken or non-portable links")
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(func=_cmd_check)
 
-    p = sub.add_parser("convert", help="turn wikilinks and non-relative links into note-relative links")
+    p = add("convert", help="turn wikilinks and non-relative links into note-relative links")
     p.add_argument("root", nargs="?", default=".")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.set_defaults(func=_cmd_convert)
 
-    p = sub.add_parser("link", help="print a note-relative link from one note to another")
+    p = add("link", help="print a note-relative link from one note to another")
     p.add_argument("from_note", help="the note the link will be written in (may not exist yet)")
     p.add_argument("to", help="a note name or a path to the target")
     p.add_argument("--text", help="link text (default: the target's name)")
     p.add_argument("--heading", help="heading text to link to")
     p.set_defaults(func=_cmd_link)
 
-    p = sub.add_parser("mv", help="move or rename a note or folder and keep links correct")
+    p = add("mv", help="move or rename a note or folder and keep links correct")
     p.add_argument("src", help="the file or folder to move")
     p.add_argument("dst", help="the new path (an existing folder takes a file inside it)")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")

@@ -159,6 +159,10 @@ class CliTests(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(code, 1)
         self.assertEqual(set(data[0]), {"level", "file", "line", "message"})
+        code, after, _ = self.run_main(["check", "--json", str(d)])
+        self.assertEqual((code, json.loads(after)), (1, data))
+        code, plain, _ = self.run_main(["check", str(d)])
+        self.assertEqual(plain, "error: n.md:1: broken link: [x](nope.md)\n")
 
     def test_init_writes_config_and_obsidian_settings(self):
         d = self.base / "i"

@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import tempfile
 import unicodedata
@@ -216,16 +217,52 @@ class ConvertTests(unittest.TestCase):
         errors = [f for f in check.check_root(rootmod.load(self.base)) if f.level == "error"]
         self.assertEqual(errors, [])
 
-    def test_cli_convert(self):
-        self.load({"N.md": "", "x.md": "[[N]] [[Nope]]\n"})
+    def run_cli(self, *argv):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = cli.main(["convert", str(self.base)])
+            code = cli.main(list(argv))
+        return code, out.getvalue()
+
+    def test_cli_convert(self):
+        self.load({"N.md": "", "x.md": "[[N]] [[Nope]]\n"})
+        code, out = self.run_cli("convert", str(self.base))
         self.assertEqual(code, 0)
-        lines = out.getvalue().splitlines()
-        self.assertEqual(lines[0], "converted 1 links in 1 files")
-        self.assertIn("warning: x.md:1: wikilink matches no file: [[Nope]]", lines)
+        self.assertEqual(out.splitlines(), [
+            "converted x.md:1: [[N]] -> [N](N.md)",
+            "converted 1 link in 1 file",
+            "before: 1 error, 1 warning",
+            "after: 0 errors, 1 warning",
+            "warning: x.md:1: wikilink matches no file: [[Nope]]",
+        ])
         self.assertEqual((self.base / "x.md").read_text(), "[N](N.md) [[Nope]]\n")
+
+    def test_cli_convert_lists_remaining_errors(self):
+        self.load({"N.md": "", "x.md": "[[N]]\n[[N|two]]\n", "y.md": "[b](gone.md)\n"})
+        code, out = self.run_cli("convert", str(self.base))
+        self.assertEqual(code, 1)
+        self.assertEqual(out.splitlines(), [
+            "converted x.md:1: [[N]] -> [N](N.md)",
+            "converted x.md:2: [[N|two]] -> [two](N.md)",
+            "converted 2 links in 1 file",
+            "before: 3 errors, 0 warnings",
+            "after: 1 error, 0 warnings",
+            "error: y.md:1: broken link: [b](gone.md)",
+        ])
+
+    def test_cli_convert_json(self):
+        self.load({"N.md": "", "x.md": "[[N]] [[Nope]]\n"})
+        for argv in (["--json", "convert", "--dry-run"], ["convert", "--dry-run", "--json"]):
+            with self.subTest(argv=argv):
+                code, out = self.run_cli(*argv, str(self.base))
+                self.assertEqual(code, 1)
+                self.assertEqual(json.loads(out), {
+                    "changes": [{"file": "x.md", "line": 1, "old": "[[N]]", "new": "[N](N.md)"}],
+                    "findings": [{"level": "warning", "file": "x.md", "line": 1,
+                                  "message": "wikilink matches no file: [[Nope]]"}],
+                    "before": {"errors": 1, "warnings": 1},
+                    "after": {"errors": 0, "warnings": 1},
+                })
+        self.assertEqual((self.base / "x.md").read_text(), "[[N]] [[Nope]]\n")
 
     def test_cli_convert_refuses_a_subfolder(self):
         self.load({"N.md": "", "sub/x.md": "[[N]]\n"})
@@ -241,12 +278,17 @@ class ConvertTests(unittest.TestCase):
         self.assertEqual((self.base / "sub/x.md").read_text(), "[[N]]\n")
 
     def test_cli_convert_dry_run(self):
-        self.load({"N.md": "", "x.md": "[[N]]\n"})
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            code = cli.main(["convert", "--dry-run", str(self.base)])
-        self.assertEqual(code, 1)  # the wikilink is still an error
-        self.assertEqual(out.getvalue().splitlines()[0], "would convert 1 links in 1 files")
+        self.load({"N.md": "", "x.md": "[[N]]\n", "y.md": "[[N]] [b](gone.md)\n"})
+        code, out = self.run_cli("convert", "--dry-run", str(self.base))
+        self.assertEqual(code, 1)  # the wikilinks are still errors on disk
+        self.assertEqual(out.splitlines(), [
+            "would convert x.md:1: [[N]] -> [N](N.md)",
+            "would convert y.md:1: [[N]] -> [N](N.md)",
+            "would convert 2 links in 2 files",
+            "before: 3 errors, 0 warnings",
+            "after: 1 error, 0 warnings",
+            "error: y.md:1: broken link: [b](gone.md)",
+        ])
         self.assertEqual((self.base / "x.md").read_text(), "[[N]]\n")
 
 

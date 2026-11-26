@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -206,6 +207,18 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(self.text("M.md"), "![p](B/.att/p.png)\n")
         self.assertTrue((self.dir / "B/.att/p.png").is_file())
         self.assertClean()
+
+    def test_mv_json(self):
+        self.load({"A/x.md": "", "M.md": "[x](A/x.md)\n", "N.md": "plain\n"})
+        code, out, err = self.cli("mv", "--json", "--dry-run", str(self.dir / "A"), str(self.dir / "B"))
+        self.assertEqual((code, err), (0, ""))
+        want = {"moves": [{"from": "A/x.md", "to": "B/x.md"}], "updated": ["M.md"], "findings": []}
+        self.assertEqual(json.loads(out), want)
+        self.assertTrue((self.dir / "A/x.md").is_file())
+        code, out, err = self.cli("--json", "mv", str(self.dir / "A"), str(self.dir / "B"))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out), want)
+        self.assertEqual(self.text("M.md"), "[x](B/x.md)\n")
 
     def test_mv_invalid_utf8_moved_unchanged_with_warning(self):
         bad = b"[n](../N.md) \xff\n"
