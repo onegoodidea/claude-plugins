@@ -22,7 +22,7 @@ It lives at `scripts/markdown-links.py` in this skill’s base directory, which 
 python3 "<base>/scripts/markdown-links.py" <command> ...
 ```
 
-Commands: `init`, `check`, `convert`, `link`, `mv`. Add `--json` before the command for machine-readable output.
+Commands: `init`, `check`, `convert`, `link`, `mv`. Add `--json` for machine-readable output.
 
 ## Writing a link
 
@@ -59,8 +59,8 @@ python3 "<base>/scripts/markdown-links.py" check <root>
 ## Bringing in a new folder
 
 1. `init <folder>`
-2. `convert --dry-run <folder>`, then review what it lists.
+2. `convert --dry-run <folder>`, then review each change it lists.
 3. `convert <folder>`
 4. `check <folder>`
 
-`convert` changes only links. It leaves ambiguous, unresolved, and block-reference wikilinks alone and lists them for the owner.
+Give `convert` the root folder itself; it refuses a subfolder. It changes only links. It leaves ambiguous, unresolved, and block-reference wikilinks alone, and broken links too, and lists them for the owner.

@@ -46,11 +46,11 @@ Dot-folders such as `.git` are always skipped. An excluded folder is invisible: 
 - **Skipped:** fenced code blocks, inline code, and HTML comments. External links (`https:`, `mailto:`, and other schemes) are never checked or rewritten.
 - **Wikilink matching** is by filename, case-insensitive, with `.md` optional. `[[Folder/Note]]` matches the note whose path ends that way. A bare name shared by several notes is ambiguous, so qualify it.
 - **Block references** (`[[Note#^abc123]]`) have no portable form. `convert` leaves them and `check` reports them as warnings.
-- **Not note-relative** Markdown links (a bare filename for a note in another folder, or `/People/Jane.md`) are errors. `convert` repairs them when the filename matches exactly one note.
+- **Not note-relative** Markdown links (a bare filename for a note in another folder, or `/People/Jane.md`) are errors. `convert` repairs them when the filename matches exactly one note. Any other link that doesn’t resolve from its note is broken, and `convert` leaves it for you.
 
 ## Commands
 
-Every problem prints as one line, `error:` or `warning:`, then the file path relative to the root, the line number, and a message. Exit codes: `0` clean, `1` errors found or the command refused, `2` usage error. Put `--json` before the command to get a list of `{"level", "file", "line", "message"}` objects instead.
+Every problem prints as one line, `error:` or `warning:`, then the file path relative to the root, the line number, and a message. Exit codes: `0` clean, `1` errors found or the command refused, `2` usage error. Add `--json`, before or after the command, for machine-readable output: `check` prints a list of `{"level", "file", "line", "message"}` objects, and `convert` and `mv` print an object holding their changes and findings.
 
 ### `init [folder]`
 
@@ -73,11 +73,13 @@ warning: Bad.md:1: wikilink matches no file: [[Nope]]
 error: Bad.md:1: broken link: [x](Missing.md)
 ```
 
-Errors: a body link to a missing file (or one that differs only in case), a non-relative link, a body wikilink that matches exactly one note (it should be a Markdown link), and a frontmatter wikilink that matches no note or more than one. Warnings: unresolved or ambiguous body wikilinks, note transclusions (`![[Note]]`), block references, a missing heading anchor, and links that leave the root.
+Errors: a body link to a missing file (or one that differs only in case or Unicode form), a non-relative link, a body wikilink that matches exactly one note (it should be a Markdown link), and a frontmatter wikilink that matches no note or more than one. Warnings: unresolved or ambiguous body wikilinks, note transclusions (`![[Note]]`), block references, a missing heading anchor, and links that leave the root.
 
 ### `convert [root] [--dry-run]`
 
-Rewrites every body wikilink that matches exactly one file, and repairs non-relative Markdown links. `[[Name|Alias]]` becomes `[Alias](path)`, `[[Name#Heading]]` becomes `[Name](path#Heading)`, `![[image.png]]` becomes `![](path)`, and an embedded attachment such as a PDF becomes `[file.pdf](path)`. Frontmatter, code, ambiguous, unresolved, and transcluded links are left alone and listed. It prints error and warning counts before and after.
+Rewrites every body wikilink that matches exactly one file, and repairs non-relative Markdown links. `[[Name|Alias]]` becomes `[Alias](path)`, `[[Name#Heading]]` becomes `[Name](path#Heading)`, `![[image.png]]` becomes `![](path)`, and an embedded attachment such as a PDF becomes `[file.pdf](path)`. An embed’s alias becomes the image’s alt text (`![[image.png|A chart]]` becomes `![A chart](path)`) or the attachment’s link text; a size such as `|300` or `|300x200` has no Markdown form, so it’s dropped with a warning. Frontmatter, code, ambiguous, unresolved, and transcluded links are left alone and listed.
+
+It works on a whole root: give it the root folder (or run it there), and it refuses a subfolder. It prints one line per link it changes, the error and warning counts before and after, then the errors left and the links it couldn’t convert. With `--dry-run` it writes nothing, and “after” is what a real run would leave.
 
 ```
 markdown-links.py convert --dry-run ~/Notes
@@ -85,8 +87,12 @@ markdown-links.py convert ~/Notes
 ```
 
 ```
-would convert 3 links in 1 files
-before: 3 errors, 0 warnings
+would convert Projects/Plan.md:3: [[Jane Doe]] -> [Jane Doe](../People/Jane%20Doe.md)
+would convert Projects/Plan.md:7: ![[chart.png|Q3]] -> ![Q3](chart.png)
+would convert 2 links in 1 file
+before: 2 errors, 1 warning
+after: 0 errors, 1 warning
+warning: Projects/Plan.md:9: wikilink matches no file: [[Old Plan]]
 ```
 
 ### `link <from-note> <to> [--text TEXT] [--heading HEADING]`

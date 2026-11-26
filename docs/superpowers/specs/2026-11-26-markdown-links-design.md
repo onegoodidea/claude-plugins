@@ -1,6 +1,6 @@
 # markdown-links: design
 
-Status: draft, not yet approved.
+Status: approved 2026-11-26.
 
 ## Intent
 
