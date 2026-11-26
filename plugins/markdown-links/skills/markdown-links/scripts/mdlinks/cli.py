@@ -51,14 +51,14 @@ def _config_error(config: Path) -> Optional[str]:
 def open_root(path: Path) -> Tuple[Optional[Root], int]:
     """Find and load the root at or above path.
 
-    Returns (root, 0), or (None, exit code) after printing the error: 2 when there is
-    no root, 1 when the config is unusable.
+    Returns (root, 0), or (None, 1) after printing the error when there is no root
+    or the config is unusable.
     """
     path = Path(os.path.abspath(path))
     root_path = rootmod.find_root(path)
     if root_path is None:
         print(f"error: no {rootmod.CONFIG_NAME} at or above {path}", file=sys.stderr)
-        return None, 2
+        return None, 1
     config = root_path / rootmod.CONFIG_NAME
     reason = _config_error(config)
     if reason:
@@ -126,9 +126,13 @@ def _counts(findings: List[Finding]) -> str:
 
 
 def _cmd_convert(args) -> int:
-    root, code = open_root(Path(os.path.abspath(args.root)))
+    path = Path(os.path.abspath(args.root))
+    root, code = open_root(path)
     if root is None:
         return code
+    if path != root.path:
+        print(f"error: convert works on a whole root; run it on {root.path}", file=sys.stderr)
+        return 1
     before = checkmod.check_root(root)
     changed, leftover, total = convertmod.convert_all(root, args.dry_run)
     after = before if args.dry_run else checkmod.check_root(rootmod.load(root.path))

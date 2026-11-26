@@ -227,6 +227,19 @@ class ConvertTests(unittest.TestCase):
         self.assertIn("warning: x.md:1: wikilink matches no file: [[Nope]]", lines)
         self.assertEqual((self.base / "x.md").read_text(), "[N](N.md) [[Nope]]\n")
 
+    def test_cli_convert_refuses_a_subfolder(self):
+        self.load({"N.md": "", "sub/x.md": "[[N]]\n"})
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(["convert", str(self.base / "sub")])
+        self.assertEqual(code, 1)
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(
+            err.getvalue(),
+            f"error: convert works on a whole root; run it on {self.base}\n",
+        )
+        self.assertEqual((self.base / "sub/x.md").read_text(), "[[N]]\n")
+
     def test_cli_convert_dry_run(self):
         self.load({"N.md": "", "x.md": "[[N]]\n"})
         out = io.StringIO()

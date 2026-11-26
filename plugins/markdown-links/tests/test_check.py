@@ -136,8 +136,11 @@ class CliTests(unittest.TestCase):
         none = self.base / "none"
         none.mkdir()
         code, _, err = self.run_main(["check", str(none)])
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 1)
         self.assertIn("error: no .markdown-links.json at or above", err)
+        with self.assertRaises(SystemExit) as cm:
+            self.run_main(["check", "--no-such-flag", str(good)])
+        self.assertEqual(cm.exception.code, 2)
 
     def test_cli_malformed_config(self):
         for content in ["{nope", "[]", '{"exclude": "x"}', '{"exclude": [1]}']:
