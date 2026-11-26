@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from . import paths
 from .model import Link
 
 _BOM = b"\xef\xbb\xbf"
@@ -153,6 +154,38 @@ def find_links(text: str) -> List[Link]:
         result.append(link)
         last_end = link.end
     return result
+
+
+def _target_offset(link: Link) -> int:
+    """Offset inside link.raw where the written target (or wikilink name) starts."""
+    raw = link.raw
+    if link.kind in ("wiki", "embed"):
+        i = 3 if link.kind == "embed" else 2
+        while raw[i].isspace():
+            i += 1
+        return i
+    if link.kind == "refdef":
+        i = raw.index("]:") + 2
+        while raw[i] in " \t":
+            i += 1
+    else:
+        i = (1 if link.kind == "image" else 0) + 1 + len(link.text or "") + 2
+    return i + 1 if link.angle else i
+
+
+def replace_target(link: Link, new_target: str) -> Optional[str]:
+    """link.raw with only its target replaced; anchor, alias, title, and form are kept.
+
+    new_target is the encoded path for a Markdown link (written decoded inside
+    <...>) or the name for a wikilink. Returns None when the written target is
+    not where it should be, so the caller leaves the link alone.
+    """
+    i = _target_offset(link)
+    if link.raw[i:i + len(link.target)] != link.target:
+        return None
+    if link.angle:
+        new_target = paths.decode(new_target)
+    return link.raw[:i] + new_target + link.raw[i + len(link.target):]
 
 
 def headings(text: str) -> List[str]:

@@ -41,31 +41,12 @@ def _wiki_replacement(
     return f"[{_escape(label)}]({enc})", None
 
 
-def _target_offset(link: Link) -> int:
-    """Offset of the written target inside link.raw."""
-    if link.kind == "refdef":
-        i = link.raw.index("]:") + 2
-        while link.raw[i] in " \t":
-            i += 1
-        return i
-    return (1 if link.kind == "image" else 0) + 1 + len(link.text or "") + 2
-
-
 def _repair_replacement(root: Root, note: Path, link: Link) -> Optional[str]:
     """link.raw with its target made note-relative, or None to leave it alone."""
     found = resolve.md_target(root, note, link.target)
     if found.path is None or found.note_relative:
         return None
-    new_path = paths.encode(paths.relative(note, found.path))
-    if link.angle:
-        new_path = paths.decode(new_path)
-    anchor = "" if link.anchor is None else "#" + link.anchor
-    written = ("<" + link.target + anchor + ">") if link.angle else link.target + anchor
-    start = _target_offset(link)
-    if link.raw[start:start + len(written)] != written:
-        return None
-    new = ("<" + new_path + anchor + ">") if link.angle else new_path + anchor
-    return link.raw[:start] + new + link.raw[start + len(written):]
+    return parse.replace_target(link, paths.encode(paths.relative(note, found.path)))
 
 
 def convert_text(root: Root, note: Path, text: str) -> Tuple[str, int, List[Finding]]:

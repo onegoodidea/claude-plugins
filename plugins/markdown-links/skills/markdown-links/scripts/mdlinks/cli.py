@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 from . import check as checkmod
 from . import convert as convertmod
 from . import link as linkmod
+from . import move as movemod
 from . import root as rootmod
 from .model import Finding, Root, format_finding
 
@@ -155,6 +156,32 @@ def _cmd_link(args) -> int:
     return 0
 
 
+def _cmd_mv(args) -> int:
+    src = Path(os.path.abspath(args.src))
+    dst = Path(os.path.abspath(args.dst))
+    root, code = open_root(src.parent)
+    if root is None:
+        return code
+    try:
+        plan = movemod.plan_move(root, src, dst)
+        changed = [] if args.dry_run else movemod.apply(root, plan)
+    except movemod.MoveError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if not args.json:
+        shown = f"{rootmod.rel(root, plan.src)} -> {rootmod.rel(root, plan.dst)}"
+        if args.dry_run:
+            print(f"would move {shown}")
+            for path in sorted(plan.edits):
+                print(f"would update {rootmod.rel(root, path)}")
+        else:
+            print(f"moved {shown}")
+            for rel in changed:
+                print(f"updated {rel}")
+    print_findings(plan.warnings, args.json)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="markdown-links", description="Keep links between Markdown notes portable."
@@ -181,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--text", help="link text (default: the target's name)")
     p.add_argument("--heading", help="heading text to link to")
     p.set_defaults(func=_cmd_link)
+
+    p = sub.add_parser("mv", help="move or rename a note or folder and keep links correct")
+    p.add_argument("src", help="the file or folder to move")
+    p.add_argument("dst", help="the new path (an existing folder takes a file inside it)")
+    p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
+    p.set_defaults(func=_cmd_mv)
     return parser
 
 

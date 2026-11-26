@@ -32,7 +32,7 @@ def load(root_path: Path) -> Root:
     root_path = Path(root_path)
     config = json.loads((root_path / CONFIG_NAME).read_text(encoding="utf-8"))
     exclude = [e.strip("/") for e in config.get("exclude", [])]
-    notes, files = [], []
+    found = []
     for dirpath, dirnames, filenames in os.walk(root_path):
         here = Path(dirpath)
         rel_here = here.relative_to(root_path).as_posix()
@@ -45,9 +45,14 @@ def load(root_path: Path) -> Root:
         for name in filenames:
             if here == root_path and name == CONFIG_NAME:
                 continue
-            (notes if name.lower().endswith(".md") else files).append(here / name)
-    notes.sort()
-    files.sort()
+            found.append(here / name)
+    return index(root_path, exclude, found)
+
+
+def index(root_path: Path, exclude, paths) -> Root:
+    """A Root over the given files, without reading the disk."""
+    notes = sorted(p for p in paths if p.name.lower().endswith(".md"))
+    files = sorted(p for p in paths if not p.name.lower().endswith(".md"))
     by_name = {}
     for note in notes:
         by_name.setdefault(note.name.lower()[:-3], []).append(note)
