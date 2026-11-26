@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from .model import Root
+from .paths import fold
 
 CONFIG_NAME = ".markdown-links.json"
 
@@ -55,8 +56,8 @@ def index(root_path: Path, exclude, paths) -> Root:
     files = sorted(p for p in paths if not p.name.lower().endswith(".md"))
     by_name = {}
     for note in notes:
-        by_name.setdefault(note.name.lower()[:-3], []).append(note)
-        by_name.setdefault(note.name.lower(), []).append(note)
+        by_name.setdefault(fold(note.name)[:-3], []).append(note)
+        by_name.setdefault(fold(note.name), []).append(note)
     for f in files:
-        by_name.setdefault(f.name.lower(), []).append(f)
+        by_name.setdefault(fold(f.name), []).append(f)
     return Root(root_path, exclude, notes, files, by_name)

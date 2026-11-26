@@ -14,14 +14,14 @@ def is_note(path: Path) -> bool:
 
 def wikilink(root: Root, name: str) -> List[Path]:
     """Resolve a wikilink name to notes (or, for non-.md names, other files)."""
-    lname = name.strip().strip("/").lower()
+    lname = paths.fold(name.strip().strip("/"))
     if not lname:
         return []
     base = lname[:-3] if lname.endswith(".md") else lname
     last = base.rsplit("/", 1)[-1]
 
     def matches(p: Path, whole: str) -> bool:
-        r = p.relative_to(root.path).as_posix().lower()
+        r = paths.fold(p.relative_to(root.path).as_posix())
         if r.endswith(".md"):
             r = r[:-3]
         return "/" not in whole or r == whole or r.endswith("/" + whole)
@@ -32,16 +32,12 @@ def wikilink(root: Root, name: str) -> List[Path]:
     ext = os.path.splitext(lname)[1]
     if ext and ext != ".md":
         flast = lname.rsplit("/", 1)[-1]
-        return [
-            p
-            for p in root.by_name.get(flast, [])
-            if not is_note(p)
-            and (
-                "/" not in lname
-                or p.relative_to(root.path).as_posix().lower() == lname
-                or p.relative_to(root.path).as_posix().lower().endswith("/" + lname)
-            )
-        ]
+
+        def file_matches(p: Path) -> bool:
+            r = paths.fold(p.relative_to(root.path).as_posix())
+            return "/" not in lname or r == lname or r.endswith("/" + lname)
+
+        return [p for p in root.by_name.get(flast, []) if not is_note(p) and file_matches(p)]
     return []
 
 
@@ -61,7 +57,8 @@ def _excluded(root: Root, path: Path) -> bool:
 
 
 def _walk(root: Root, start: Path, segments: List[str]) -> Optional[Tuple[Path, bool]]:
-    """Resolve segments from start, one at a time: exact case first, then any case."""
+    """Resolve segments from start, one at a time: exact spelling first, then any case
+    or Unicode form (reported as not exact, since GitHub matches bytes)."""
     current = Path(os.path.abspath(start))
     exact = True
     for seg in segments:
@@ -77,7 +74,7 @@ def _walk(root: Root, start: Path, segments: List[str]) -> Optional[Tuple[Path, 
         if seg in entries:
             current = current / seg
             continue
-        folded = [e for e in entries if e.lower() == seg.lower()]
+        folded = [e for e in entries if paths.fold(e) == paths.fold(seg)]
         if not folded:
             return None
         current = current / sorted(folded)[0]
@@ -105,7 +102,7 @@ def md_target(root: Root, from_note: Path, target: str) -> MdTarget:
         return result(found, True)
     if "/" not in decoded:
         # A bare filename for a file in another folder: found by name when only one has it.
-        hits = root.by_name.get(decoded.lower(), [])
+        hits = root.by_name.get(paths.fold(decoded), [])
         if len(hits) == 1:
             return MdTarget(hits[0], hits[0].name == decoded, False, False)
     return MdTarget(None, True, False, True)

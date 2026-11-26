@@ -1,4 +1,5 @@
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -71,6 +72,31 @@ class ResolveTests(unittest.TestCase):
         self.assertIsNone(resolve.md_target(self.r, self.tasks, "../Templates/T.md").path)
         t = resolve.md_target(self.r, self.tasks, "")
         self.assertEqual((t.path, t.exact_case, t.outside_root, t.note_relative), (self.tasks, True, False, True))
+
+
+class UnicodeFormTests(unittest.TestCase):
+    """A file stored decomposed (NFD) and a link written composed (NFC)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.nfd = unicodedata.normalize("NFD", "Café.md")
+        helpers.make_root(self.tmp.name, {self.nfd: "", "Sub/n.md": ""})
+        self.r = rootmod.load(Path(self.tmp.name))
+        self.cafe = self.r.path / self.nfd
+        self.note = self.r.path / "Sub/n.md"
+
+    def test_wikilink_matches_across_forms(self):
+        self.assertEqual(resolve.wikilink(self.r, unicodedata.normalize("NFC", "Café")), [self.cafe])
+        self.assertEqual(resolve.wikilink(self.r, unicodedata.normalize("NFD", "café")), [self.cafe])
+
+    def test_md_target_form_mismatch_is_like_case(self):
+        t = resolve.md_target(self.r, self.note, "../Caf%C3%A9.md")
+        self.assertEqual((t.path, t.exact_case, t.note_relative), (self.cafe, False, True))
+        t = resolve.md_target(self.r, self.note, "../Cafe%CC%81.md")
+        self.assertEqual((t.path, t.exact_case), (self.cafe, True))
+        t = resolve.md_target(self.r, self.note, "Caf%C3%A9.md")
+        self.assertEqual((t.path, t.exact_case, t.note_relative), (self.cafe, False, False))
 
 
 if __name__ == "__main__":

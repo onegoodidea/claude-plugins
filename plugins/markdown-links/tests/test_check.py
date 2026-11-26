@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -28,6 +29,20 @@ class CheckTests(unittest.TestCase):
     def test_case_mismatch(self):
         got = self.run_check({"n.md": "[x](jane.md)\n", "Jane.md": ""})
         self.assertEqual(got, [("error", 1)])
+
+    def test_unicode_form_mismatch_is_like_case(self):
+        nfd = unicodedata.normalize("NFD", "Café.md")
+        fm = '---\nup: "[[Caf\u00e9]]"\n---\n'
+        files = {nfd: "", "n.md": fm + "[c](Caf%C3%A9.md)\n[[Caf\u00e9]]\n"}
+        root_dir = self.base / "root"
+        root_dir.mkdir()
+        helpers.make_root(root_dir, files)
+        r = rootmod.load(root_dir)
+        got = [(f.level, f.line, f.message) for f in check.check_file(r, r.path / "n.md")]
+        self.assertEqual(got, [
+            ("error", 4, "case differs from the file on disk: [c](Caf%C3%A9.md)"),
+            ("error", 5, "use a Markdown link: [[Caf\u00e9]]"),
+        ])
 
     def test_not_note_relative(self):
         got = self.run_check({"a/n.md": "\n[x](b/t.md)\n", "b/t.md": ""}, note="a/n.md")

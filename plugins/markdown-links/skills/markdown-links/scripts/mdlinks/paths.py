@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import unicodedata
 import urllib.parse
 from pathlib import Path
 
@@ -9,6 +10,11 @@ def relative(from_note: Path, target: Path) -> str:
     """POSIX path from from_note's folder to target, with no ./ prefix."""
     start = os.path.dirname(str(from_note)) or "."
     return Path(os.path.relpath(str(target), start)).as_posix()
+
+
+def fold(name: str) -> str:
+    """name for matching: Unicode NFC, lowercased. Disk spellings can differ in both."""
+    return unicodedata.normalize("NFC", name).lower()
 
 
 def encode(posix_path: str) -> str:

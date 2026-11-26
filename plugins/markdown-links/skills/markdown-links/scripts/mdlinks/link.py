@@ -46,6 +46,10 @@ def make_link(
     target = _as_path(root, to)
     if target is not None:
         _check_inside(root, target)
+        # A disk that ignores case or Unicode form accepts other spellings; link the real one.
+        on_disk = resolve._walk(root, root.path, resolve._under(root, target).split("/"))
+        if on_disk is not None:
+            target = on_disk[0]
     else:
         found = resolve.wikilink(root, to)
         if not found:

@@ -3,6 +3,7 @@ import io
 import json
 import os
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -64,6 +65,14 @@ class LinkTests(unittest.TestCase):
         code, out, err = self.cli("link", str(self.dir / "x.md"), "Tasks", json_mode=True)
         self.assertEqual(code, 1)
         self.assertIn("error:", err)
+
+    def test_link_uses_on_disk_unicode_form(self):
+        nfd = unicodedata.normalize("NFD", "Café.md")
+        helpers.make_root(self.dir, {nfd: ""}, {"exclude": ["Secret"]})
+        self.root = rootmod.load(self.dir)
+        want = "[" + nfd[:-3] + "](Cafe%CC%81.md)"
+        self.assertEqual(self.make("A.md", unicodedata.normalize("NFC", "Café")), want)
+        self.assertEqual(self.make("A.md", unicodedata.normalize("NFC", "Café.md")), want)
 
     def test_link_by_path(self):
         self.assertEqual(self.make("x.md", "B/Tasks.md"), "[Tasks](B/Tasks.md)")

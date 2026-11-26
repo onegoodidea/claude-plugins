@@ -2,6 +2,7 @@ import contextlib
 import io
 import os
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 
@@ -120,6 +121,14 @@ class ConvertTests(unittest.TestCase):
         files = {"Alpha/Tasks.md": "", "Beta/B.md": text}
         new, count, _ = self.convert(files, "Beta/B.md")
         self.assertEqual((new, count), (text, 0))
+
+    def test_convert_writes_on_disk_unicode_form(self):
+        nfd = unicodedata.normalize("NFD", "Café.md")
+        nfc_name = unicodedata.normalize("NFC", "Café")
+        files = {nfd: "", "x.md": f"[[{nfc_name}]] [c](/Caf%C3%A9.md)\n"}
+        new, count, warnings = self.convert(files, "x.md")
+        self.assertEqual(new, f"[{nfc_name}](Cafe%CC%81.md) [c](Cafe%CC%81.md)\n")
+        self.assertEqual((count, warnings), (2, []))
 
     def test_convert_only_links_change(self):
         pairs = [

@@ -23,7 +23,7 @@ class Root:
     exclude: List[str]
     notes: List[Path]  # .md files, absolute and sorted
     files: List[Path]  # all other files, absolute and sorted
-    by_name: Dict[str, List[Path]]  # lowercased name -> paths
+    by_name: Dict[str, List[Path]]  # paths.fold(name) -> paths
 
 
 @dataclass
