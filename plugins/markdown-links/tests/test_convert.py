@@ -56,6 +56,21 @@ class ConvertTests(unittest.TestCase):
         self.assertEqual(count, 10)
         self.assertEqual(warnings, [])
 
+    def test_convert_embed_alias(self):
+        files = {
+            "p.png": b"\x89PNG",
+            "doc.pdf": b"%PDF",
+            "x.md": "![[p.png|alt text]] ![[doc.pdf|The doc]] ![[p.png|300]] ![[p.png|300x200]]\n",
+        }
+        new, count, warnings = self.convert(files, "x.md")
+        self.assertEqual(new, "![alt text](p.png) [The doc](doc.pdf) ![](p.png) ![](p.png)\n")
+        self.assertEqual(count, 4)
+        self.assertEqual(
+            [(w.level, w.line, w.message) for w in warnings],
+            [("warning", 1, "image size dropped: ![[p.png|300]]"),
+             ("warning", 1, "image size dropped: ![[p.png|300x200]]")],
+        )
+
     def test_convert_table_alias(self):
         new, count, _ = self.convert(
             {"N.md": "", "x.md": "| [[N\\|Al]] |\n"}, "x.md"

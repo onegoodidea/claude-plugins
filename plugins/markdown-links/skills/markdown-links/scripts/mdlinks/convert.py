@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -9,6 +10,7 @@ from . import root as rootmod
 from .model import Finding, Link, Root
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif", ".bmp"}
+_SIZE = re.compile(r"\d+(?:x\d+)?")  # an embed alias that sets a size: 300 or 300x200
 
 
 def _escape(label: str) -> str:
@@ -25,7 +27,7 @@ def _encoded(note: Path, target: Path, anchor: Optional[str]) -> str:
 def _wiki_replacement(
     root: Root, note: Path, rel: str, link: Link
 ) -> Tuple[Optional[str], Optional[Finding]]:
-    """The Markdown text for a wiki or embed link, or a warning for why it stays."""
+    """The Markdown text for a wiki or embed link (None when it stays), and any warning."""
     path, warning = check.classify_body_wikilink(root, note, rel, link)
     if path is None:
         return None, warning
@@ -34,9 +36,14 @@ def _wiki_replacement(
     else:
         enc = _encoded(note, path, link.anchor)
     if link.kind == "embed":
+        alias, warning = link.alias, None
+        if alias is not None and _SIZE.fullmatch(alias.strip()):
+            alias = None
+            warning = Finding("warning", rel, link.line,
+                              f"image size dropped: {check._shown(link)}")
         if os.path.splitext(path.name)[1].lower() in _IMAGE_EXTS:
-            return f"![]({enc})", None
-        return f"[{_escape(path.name)}]({enc})", None
+            return f"![{_escape(alias or '')}]({enc})", warning
+        return f"[{_escape(alias or path.name)}]({enc})", warning
     label = link.alias if link.alias is not None else (link.target or link.anchor or "")
     return f"[{_escape(label)}]({enc})", None
 
