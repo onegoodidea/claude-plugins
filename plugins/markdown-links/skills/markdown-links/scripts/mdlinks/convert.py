@@ -4,24 +4,11 @@ import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from . import parse, paths, resolve
+from . import check, parse, paths, resolve
 from . import root as rootmod
 from .model import Finding, Link, Root
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif", ".bmp"}
-
-
-def _is_note(path: Path) -> bool:
-    return path.name.lower().endswith(".md")
-
-
-def _shown(link: Link) -> str:
-    return link.raw if len(link.raw) <= 60 else link.raw[:57] + "..."
-
-
-def _candidates(root: Root, hits: List[Path]) -> str:
-    names = [rootmod.rel(root, p) for p in hits[:3]]
-    return ", ".join(names) + (", ..." if len(hits) > 3 else "")
 
 
 def _escape(label: str) -> str:
@@ -39,21 +26,9 @@ def _wiki_replacement(
     root: Root, note: Path, rel: str, link: Link
 ) -> Tuple[Optional[str], Optional[Finding]]:
     """The Markdown text for a wiki or embed link, or a warning for why it stays."""
-    shown = _shown(link)
-
-    def warn(message: str) -> Tuple[None, Finding]:
-        return None, Finding("warning", rel, link.line, f"{message}: {shown}")
-
-    if link.block_ref:
-        return warn("block reference has no Markdown equivalent")
-    hits = [note] if link.target == "" else resolve.wikilink(root, link.target)
-    if not hits:
-        return warn("wikilink matches no file")
-    if len(hits) > 1:
-        return warn(f"wikilink is ambiguous ({_candidates(root, hits)})")
-    path = hits[0]
-    if link.kind == "embed" and _is_note(path):
-        return warn("note transclusion has no Markdown equivalent")
+    path, warning = check.classify_body_wikilink(root, note, rel, link)
+    if path is None:
+        return None, warning
     if link.target == "":
         enc = "#" + paths.encode_anchor(paths.decode(link.anchor or ""))
     else:

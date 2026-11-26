@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 from . import parse, paths, resolve
 from . import root as rootmod
 from .model import Finding, Link, Root
-
-
-def _is_note(path: Path) -> bool:
-    return path.name.lower().endswith(".md")
 
 
 def _shown(link: Link) -> str:
@@ -37,7 +33,7 @@ def _check_markdown_link(root: Root, note: Path, rel: str, link: Link) -> List[F
     if target.outside_root:
         out.append(Finding("warning", rel, link.line,
                            f"points outside the root: {shown}"))
-    if link.anchor and not link.block_ref and _is_note(target.path):
+    if link.anchor and not link.block_ref and resolve.is_note(target.path):
         wanted = paths.decode(link.anchor).casefold()
         try:
             text = parse.read(target.path)[0]
@@ -60,19 +56,32 @@ def _check_wikilink(root: Root, note: Path, rel: str, link: Link) -> List[Findin
         return [Finding("error", rel, link.line,
                         f"wikilink is ambiguous ({_candidates(root, hits)}): {shown}")]
 
-    if link.block_ref:
-        return [Finding("warning", rel, link.line,
-                        f"block reference has no Markdown equivalent: {shown}")]
-    hits = [note] if link.target == "" else resolve.wikilink(root, link.target)
-    if len(hits) != 1:
-        if not hits:
-            return [Finding("warning", rel, link.line, f"wikilink matches no file: {shown}")]
-        return [Finding("warning", rel, link.line,
-                        f"wikilink is ambiguous ({_candidates(root, hits)}): {shown}")]
-    if link.kind == "embed" and _is_note(hits[0]):
-        return [Finding("warning", rel, link.line,
-                        f"note transclusion has no Markdown equivalent: {shown}")]
+    path, finding = classify_body_wikilink(root, note, rel, link)
+    if finding:
+        return [finding]
     return [Finding("error", rel, link.line, f"use a Markdown link: {shown}")]
+
+
+def classify_body_wikilink(
+    root: Root, note: Path, rel: str, link: Link
+) -> Tuple[Optional[Path], Optional[Finding]]:
+    """The one file a body wiki or embed link points at, or the warning for why
+    it cannot become a Markdown link. check and convert both decide through this."""
+    shown = _shown(link)
+
+    def warn(message: str) -> Tuple[None, Finding]:
+        return None, Finding("warning", rel, link.line, f"{message}: {shown}")
+
+    if link.block_ref:
+        return warn("block reference has no Markdown equivalent")
+    hits = [note] if link.target == "" else resolve.wikilink(root, link.target)
+    if not hits:
+        return warn("wikilink matches no file")
+    if len(hits) > 1:
+        return warn(f"wikilink is ambiguous ({_candidates(root, hits)})")
+    if link.kind == "embed" and resolve.is_note(hits[0]):
+        return warn("note transclusion has no Markdown equivalent")
+    return hits[0], None
 
 
 def check_file(root: Root, note: Path) -> List[Finding]:

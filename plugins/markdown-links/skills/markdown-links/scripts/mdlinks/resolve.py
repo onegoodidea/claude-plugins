@@ -8,7 +8,7 @@ from . import paths
 from .model import MdTarget, Root
 
 
-def _is_note(path: Path) -> bool:
+def is_note(path: Path) -> bool:
     return path.name.lower().endswith(".md")
 
 
@@ -26,7 +26,7 @@ def wikilink(root: Root, name: str) -> List[Path]:
             r = r[:-3]
         return "/" not in whole or r == whole or r.endswith("/" + whole)
 
-    notes = [p for p in root.by_name.get(last, []) if _is_note(p) and matches(p, base)]
+    notes = [p for p in root.by_name.get(last, []) if is_note(p) and matches(p, base)]
     if notes:
         return notes
     ext = os.path.splitext(lname)[1]
@@ -35,7 +35,7 @@ def wikilink(root: Root, name: str) -> List[Path]:
         return [
             p
             for p in root.by_name.get(flast, [])
-            if not _is_note(p)
+            if not is_note(p)
             and (
                 "/" not in lname
                 or p.relative_to(root.path).as_posix().lower() == lname
