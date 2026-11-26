@@ -33,6 +33,18 @@ class CheckTests(unittest.TestCase):
         got = self.run_check({"a/n.md": "\n[x](b/t.md)\n", "b/t.md": ""}, note="a/n.md")
         self.assertEqual(got, [("error", 2)])
 
+    def test_unresolved_path_link_is_broken(self):
+        root_dir = self.base / "root"
+        root_dir.mkdir()
+        text = "[old](../Gamma/Tasks.md)\n[root](Alpha/Tasks.md)\n"
+        helpers.make_root(root_dir, {"Alpha/Tasks.md": "", "Beta/B.md": text})
+        r = rootmod.load(root_dir)
+        got = [(f.level, f.line, f.message) for f in check.check_file(r, r.path / "Beta/B.md")]
+        self.assertEqual(got, [
+            ("error", 1, "broken link: [old](../Gamma/Tasks.md)"),
+            ("error", 2, "broken link: [root](Alpha/Tasks.md)"),
+        ])
+
     def test_outside_root_warning(self):
         (self.base / "out.md").write_text("")
         root_dir = self.base / "root"

@@ -114,6 +114,13 @@ class ConvertTests(unittest.TestCase):
         )
         self.assertEqual(count, 6)
 
+    def test_convert_leaves_broken_path_links(self):
+        # A target with a "/" that doesn't resolve from the note is broken, not guessed at.
+        text = "[old](../Gamma/Tasks.md)\n[root](Alpha/Tasks.md)\n"
+        files = {"Alpha/Tasks.md": "", "Beta/B.md": text}
+        new, count, _ = self.convert(files, "Beta/B.md")
+        self.assertEqual((new, count), (text, 0))
+
     def test_convert_only_links_change(self):
         pairs = [
             ("[[N]]", "[N](N.md)"),

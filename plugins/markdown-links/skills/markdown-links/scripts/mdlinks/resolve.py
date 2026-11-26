@@ -100,15 +100,12 @@ def md_target(root: Root, from_note: Path, target: str) -> MdTarget:
         found = _walk(root, root.path, decoded.split("/"))
         return result(found, False) if found else MdTarget(None, True, False, False)
 
-    segments = decoded.split("/")
-    found = _walk(root, Path(from_note).parent, segments)
+    found = _walk(root, Path(from_note).parent, decoded.split("/"))
     if found:
         return result(found, True)
-    found = _walk(root, root.path, segments)
-    if found:
-        return result(found, False)
-    last = segments[-1]
-    hits = root.by_name.get(last.lower(), [])
-    if last and len(hits) == 1:
-        return MdTarget(hits[0], hits[0].name == last, False, False)
+    if "/" not in decoded:
+        # A bare filename for a file in another folder: found by name when only one has it.
+        hits = root.by_name.get(decoded.lower(), [])
+        if len(hits) == 1:
+            return MdTarget(hits[0], hits[0].name == decoded, False, False)
     return MdTarget(None, True, False, True)
