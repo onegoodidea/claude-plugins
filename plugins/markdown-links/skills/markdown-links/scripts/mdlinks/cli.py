@@ -182,6 +182,15 @@ def _cmd_mv(args) -> int:
     return 0
 
 
+def _cmd_hook(args) -> int:
+    from . import hook
+
+    code, err = hook.run(sys.stdin.read())
+    if err:
+        sys.stderr.write(err)
+    return code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="markdown-links", description="Keep links between Markdown notes portable."
@@ -214,6 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("dst", help="the new path (an existing folder takes a file inside it)")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.set_defaults(func=_cmd_mv)
+
+    p = sub.add_parser("hook")  # PostToolUse entry; no help text on purpose
+    p.set_defaults(func=_cmd_hook)
     return parser
 
 
