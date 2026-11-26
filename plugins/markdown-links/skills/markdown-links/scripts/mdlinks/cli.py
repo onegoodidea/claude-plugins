@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from . import check as checkmod
+from . import convert as convertmod
 from . import root as rootmod
 from .model import Finding, Root, format_finding
 
@@ -117,6 +118,28 @@ def _cmd_check(args) -> int:
     return _exit_code(findings)
 
 
+def _counts(findings: List[Finding]) -> str:
+    errors = sum(f.level == "error" for f in findings)
+    return f"{errors} errors, {len(findings) - errors} warnings"
+
+
+def _cmd_convert(args) -> int:
+    root, code = open_root(Path(os.path.abspath(args.root)))
+    if root is None:
+        return code
+    before = checkmod.check_root(root)
+    changed, leftover, total = convertmod.convert_all(root, args.dry_run)
+    after = before if args.dry_run else checkmod.check_root(rootmod.load(root.path))
+    if not args.json:
+        verb = "would convert" if args.dry_run else "converted"
+        print(f"{verb} {total} links in {len(changed)} files")
+        print(f"before: {_counts(before)}")
+        if not args.dry_run:
+            print(f"after: {_counts(after)}")
+    print_findings(leftover, args.json)
+    return _exit_code(after)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="markdown-links", description="Keep links between Markdown notes portable."
@@ -131,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("check", help="report broken or non-portable links")
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(func=_cmd_check)
+
+    p = sub.add_parser("convert", help="turn wikilinks and non-relative links into note-relative links")
+    p.add_argument("root", nargs="?", default=".")
+    p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
+    p.set_defaults(func=_cmd_convert)
     return parser
 
 
