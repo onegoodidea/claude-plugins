@@ -105,6 +105,12 @@ class ConvertTests(unittest.TestCase):
         self.assertIn("transclusion", warnings[2].message)
         self.assertIn("block reference", warnings[3].message)
 
+    def test_convert_leaves_fence_in_nested_list_item(self):
+        text = "- a\n  - b\n    ```\n    [[N]]\n\n    [[N]]\n    ```\n- [[N]]\n"
+        new, count, _ = self.convert({"N.md": "", "x.md": text}, "x.md")
+        self.assertEqual(new, text.replace("- [[N]]\n", "- [N](N.md)\n"))
+        self.assertEqual(count, 1)
+
     def test_convert_repairs_non_relative(self):
         files = {
             "People/Jane Doe.md": "",

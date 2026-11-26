@@ -11,9 +11,9 @@ from .model import Link
 _BOM = b"\xef\xbb\xbf"
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?=\r?\n|\Z)", re.DOTALL)
-# Up to 3 spaces of indent after any blockquote markers; a backtick fence's info
-# string has no backtick (so ```js``` on one line is inline code, not a fence).
-_FENCE_OPEN = re.compile(r"^(?: {0,3}>[ \t]?)* {0,3}(`{3,}(?!.*`)|~{3,})")
+# Any indent (fences sit inside list items) after any blockquote markers. A backtick
+# fence's info string has no backtick, so ```js``` on one line is inline code.
+_FENCE_OPEN = re.compile(r"^[ \t]*(?:>[ \t]*)*(`{3,}(?!.*`)|~{3,})")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\r?\n[ \t]*\r?\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
 

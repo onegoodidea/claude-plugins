@@ -88,9 +88,19 @@ class ParseTests(unittest.TestCase):
         text = "```js``` x\n[[after]]\n"
         self.assertEqual([l.target for l in parse.find_links(text)], ["after"])
 
-    def test_fence_opener_indent(self):
-        text = "   ```\n[[in]]\n   ```\n> > ```\n> > [[q]]\n> > ```\n    ```\n[[after]]\n"
+    def test_fence_opener_any_indent(self):
+        text = (
+            "   ```\n[[in]]\n   ```\n"
+            "> > ```\n> > [[q]]\n> > ```\n"
+            "\t```\n[[tab]]\n\t```\n"
+            "1. item\n\n    ```\n    [[four]]\n    ```\n"
+            "[[after]]\n"
+        )
         self.assertEqual([l.target for l in parse.find_links(text)], ["after"])
+
+    def test_fence_inside_nested_list_item(self):
+        text = "- a\n  - b\n    ```\n    [[N]]\n\n    [[N]]\n    ```\n- [[after]]\n"
+        self.assertEqual([(l.target, l.line) for l in parse.find_links(text)], [("after", 8)])
 
     def test_external_ignored(self):
         text = "[a](https://x.com) [b](mailto:a@b.c) [[obsidian:open]] [c](//host/p) [d](obsidian://x)"
