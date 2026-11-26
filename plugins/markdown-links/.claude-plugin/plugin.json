@@ -1,0 +1,6 @@
+{
+  "name": "markdown-links",
+  "description": "Keeps links between Markdown notes working everywhere: converts [[wikilinks]] to relative links, writes and checks links, and moves notes without breaking them.",
+  "author": { "name": "One Good Idea" },
+  "license": "MIT"
+}
