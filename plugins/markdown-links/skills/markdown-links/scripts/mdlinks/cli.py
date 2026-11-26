@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 
 from . import check as checkmod
 from . import convert as convertmod
+from . import link as linkmod
 from . import root as rootmod
 from .model import Finding, Root, format_finding
 
@@ -140,6 +141,20 @@ def _cmd_convert(args) -> int:
     return _exit_code(after)
 
 
+def _cmd_link(args) -> int:
+    from_note = Path(os.path.abspath(args.from_note))
+    root, code = open_root(from_note.parent if not from_note.is_dir() else from_note)
+    if root is None:
+        return code
+    try:
+        md = linkmod.make_link(root, from_note, args.to, args.text, args.heading)
+    except linkmod.LinkError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps({"link": md}) if args.json else md)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="markdown-links", description="Keep links between Markdown notes portable."
@@ -159,6 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("root", nargs="?", default=".")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.set_defaults(func=_cmd_convert)
+
+    p = sub.add_parser("link", help="print a note-relative link from one note to another")
+    p.add_argument("from_note", help="the note the link will be written in (may not exist yet)")
+    p.add_argument("to", help="a note name or a path to the target")
+    p.add_argument("--text", help="link text (default: the target's name)")
+    p.add_argument("--heading", help="heading text to link to")
+    p.set_defaults(func=_cmd_link)
     return parser
 
 
