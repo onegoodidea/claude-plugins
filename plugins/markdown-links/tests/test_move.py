@@ -97,6 +97,22 @@ class MoveTests(unittest.TestCase):
         self.assertFalse((self.dir / "A").exists())
         self.assertClean()
 
+    def test_mv_folder_keeps_already_correct_links_as_written(self):
+        x = "[a](./y.md) [b](sub/../y.md) [c](y.md)\n"
+        plan = self.mv(
+            {
+                "A/x.md": x,
+                "A/y.md": "",
+                "A/sub/w.md": "",
+                "A/z.md": "[j](Jane.md)\n",
+                "People/Jane.md": "",
+            },
+            "A", "Archive/A",
+        )
+        self.assertEqual(self.text("Archive/A/x.md"), x)
+        self.assertEqual(self.text("Archive/A/z.md"), "[j](../../People/Jane.md)\n")
+        self.assertEqual(sorted(plan.edits), [self.dir / "Archive/A/z.md"])
+
     def test_mv_rename_updates_wikilinks(self):
         self.mv(
             {

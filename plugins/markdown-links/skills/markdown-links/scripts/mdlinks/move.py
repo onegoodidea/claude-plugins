@@ -164,6 +164,12 @@ def _md_edit(
     new_target = moved.get(found.path, found.path)
     if new_target == found.path and new_note == note:
         return None
+    if (
+        found.note_relative
+        and found.exact_case
+        and paths.relative(note, found.path) == paths.relative(new_note, new_target)
+    ):
+        return None  # still correct after the move; keep it as written
     return parse.replace_target(link, paths.encode(paths.relative(new_note, new_target)))
 
 
