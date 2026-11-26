@@ -75,6 +75,12 @@ class ParseTests(unittest.TestCase):
     def test_line_numbers_crlf(self):
         self.assertEqual(one("a\r\nb [[N]]\r\n").line, 2)
 
+    def test_inline_code_does_not_cross_blank_line_crlf(self):
+        for nl in ("\n", "\r\n"):
+            with self.subTest(nl=repr(nl)):
+                text = "a `b" + nl + nl + "c [[N]] d` e"
+                self.assertEqual([l.target for l in parse.find_links(text)], ["N"])
+
     def test_headings(self):
         self.assertEqual(parse.headings("# One\n```\n# not\n```\n## Two ##\n"), ["One", "Two"])
 

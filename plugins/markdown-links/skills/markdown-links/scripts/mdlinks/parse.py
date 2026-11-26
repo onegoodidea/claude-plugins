@@ -12,7 +12,7 @@ _BOM = b"\xef\xbb\xbf"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?=\r?\n|\Z)", re.DOTALL)
 _FENCE_OPEN = re.compile(r"^[ \t]*(?:>[ \t]*)*([`~]{3,})")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-_INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
+_INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\r?\n[ \t]*\r?\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
 
 _WIKI = re.compile(r"(!?)\[\[([^\[\]\n]+?)\]\]")
 _MD = re.compile(
