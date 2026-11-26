@@ -31,6 +31,22 @@ class ParseTests(unittest.TestCase):
         l = one("intro\n\n[id]: Notes/N.md\n")
         self.assertEqual((l.kind, l.target, l.line), ("refdef", "Notes/N.md", 3))
 
+    def test_refdef_needs_only_a_title_after_the_target(self):
+        self.assertEqual(parse.find_links("[TODO]: call Bob tomorrow\n"), [])
+        self.assertEqual(parse.find_links("[Note]: see x.md for more\r\n"), [])
+        cases = [
+            "[id]: N.md\n",
+            "[id]: N.md   \n",
+            '[id]: N.md "Title"\n',
+            "[id]: N.md 'Title'\r\n",
+            "[id]: <A b.md> (Title)",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                l = one(text)
+                self.assertEqual(l.kind, "refdef")
+                self.assertIn(l.target, ("N.md", "A b.md"))
+
     def test_wiki_forms(self):
         cases = [
             ("[[N]]", "wiki", "N", None, None, False),
@@ -66,6 +82,14 @@ class ParseTests(unittest.TestCase):
             "<!--\n[[g]]\n-->\n"
             "[[after]]\n"
         )
+        self.assertEqual([l.target for l in parse.find_links(text)], ["after"])
+
+    def test_inline_triple_backticks_do_not_open_a_fence(self):
+        text = "```js``` x\n[[after]]\n"
+        self.assertEqual([l.target for l in parse.find_links(text)], ["after"])
+
+    def test_fence_opener_indent(self):
+        text = "   ```\n[[in]]\n   ```\n> > ```\n> > [[q]]\n> > ```\n    ```\n[[after]]\n"
         self.assertEqual([l.target for l in parse.find_links(text)], ["after"])
 
     def test_external_ignored(self):

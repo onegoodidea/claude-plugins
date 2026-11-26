@@ -11,7 +11,9 @@ from .model import Link
 _BOM = b"\xef\xbb\xbf"
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?=\r?\n|\Z)", re.DOTALL)
-_FENCE_OPEN = re.compile(r"^[ \t]*(?:>[ \t]*)*([`~]{3,})")
+# Up to 3 spaces of indent after any blockquote markers; a backtick fence's info
+# string has no backtick (so ```js``` on one line is inline code, not a fence).
+_FENCE_OPEN = re.compile(r"^(?: {0,3}>[ \t]?)* {0,3}(`{3,}(?!.*`)|~{3,})")
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\r?\n[ \t]*\r?\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
 
@@ -21,7 +23,12 @@ _MD = re.compile(
     r"\((<[^>\n]*>|[^()\s]*(?:\([^()\s]*\)[^()\s]*)*)"
     r"(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'))?[ \t]*\)"
 )
-_REFDEF = re.compile(r"^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]*>|\S+)", re.MULTILINE)
+# The destination may be followed only by an optional title, then the end of the line.
+_REFDEF = re.compile(
+    r"^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]*>|\S+)"
+    r"(?=(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*\r?$)",
+    re.MULTILINE,
+)
 _HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*\r?$", re.MULTILINE)
 _ALIAS_SPLIT = re.compile(r"\\?\|")
 _EXTERNAL = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
