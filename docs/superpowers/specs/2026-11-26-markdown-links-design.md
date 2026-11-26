@@ -55,7 +55,7 @@ The owner chose A.
 
 ### Roots
 
-A **root** is a folder containing `.markdown-links.json`. Every command resolves the root by walking up from the path it’s given; a path with no root above it is out of scope. Filenames must be unique within a root (case-insensitive, ignoring `.md`), and links resolve within it.
+A **root** is a folder containing `.markdown-links.json`. Every command resolves the root by walking up from the path it’s given; a path with no root above it is out of scope. Links resolve within the root.
 
 `.markdown-links.json` holds settings. This version needs one:
 
@@ -63,11 +63,11 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 { "exclude": ["Templates", "Archive/old"] }
 ```
 
-`exclude` lists folders, relative to the root, that commands skip. Hidden folders (`.git`, `.obsidian`, `.trash`, any dot-folder) are always skipped. An excluded folder is invisible to every command: its files aren’t checked, converted, or moved, and they aren’t link targets or filename duplicates. So a link into an excluded folder reports as broken; exclude only folders nothing links to, such as templates. (Builder’s call.)
+`exclude` lists folders, relative to the root, that commands skip. Hidden folders (`.git`, `.obsidian`, `.trash`, any dot-folder) are always skipped. An excluded folder is invisible to every command: its files aren’t checked, converted, or moved, and they aren’t link targets. So a link into an excluded folder reports as broken; exclude only folders nothing links to, such as templates. (Builder’s call.)
 
-**Uniqueness covers notes only.** Two `.md` files with the same name (case-insensitive) in a root are an error. Attachments (any other file) may share names across folders; a body link to one is a path, so it’s never ambiguous, and a wikilink to a shared attachment name is reported as ambiguous. (Builder’s call.)
+**Filenames don’t have to be unique.** Several folders can each have a `README.md`, `AGENTS.md`, `CLAUDE.md`, or `Tasks.md`. Body links are paths, so a shared name never makes them ambiguous. A shared name matters only to a wikilink that names it, which is reported where it occurs (see below), so `check` has no separate duplicate-name error.
 
-**Wikilink resolution** follows the common convention: by filename, case-insensitive, `.md` optional. A path-qualified wikilink (`[[Folder/Note]]`) resolves to the note whose path ends with that path. (Builder’s call.)
+**Wikilink resolution** follows the common convention: by filename, case-insensitive, `.md` optional. A path-qualified wikilink (`[[Folder/Note]]`) resolves to the note whose path ends with that path. A bare wikilink to a name more than one note shares (`[[Tasks]]` with two `Tasks.md` files) is ambiguous; the fix is to qualify it (`[[Project A/Tasks]]`). The same rule applies to attachments. (Builder’s call.)
 
 ### Link rules
 
@@ -87,8 +87,7 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 - **`check [path]`** checks the whole root, or one file when `path` is a file. Errors:
   - a body link whose target doesn’t exist, or exists only with different case;
   - a body wikilink that resolves to exactly one note (it should have been a Markdown link);
-  - a frontmatter wikilink that resolves to no note or to more than one;
-  - duplicate filenames in the root (whole-root check only).
+  - a frontmatter wikilink that resolves to no note or to more than one.
   Warnings:
   - a body wikilink that resolves to no note or to several (left for the owner);
   - a note transclusion `![[Note]]`;
@@ -98,8 +97,9 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 - **`mv <src> <dst>`** moves a file or folder within one root and keeps links correct:
   - links in other notes that point into the moved set are rewritten to the new paths;
   - relative links inside the moved notes that point outside the set are rewritten for their new location (links within the set already move together);
-  - when a note’s filename changes, frontmatter wikilinks to it (`[[Old]]`, `[[Old|x]]`, `[[Old#h]]`) and any remaining body wikilinks to it are updated everywhere in the root.
-  It refuses, changing nothing, if the destination exists, leaves the root, or would create a duplicate filename. It computes every edit before touching the disk. `--dry-run` lists the move and every edit. Inside a git work tree it moves with `git mv` so history follows; otherwise with a plain rename. It prints every file it changed.
+  - when a note’s filename changes, frontmatter wikilinks to it (`[[Old]]`, `[[Old|x]]`, `[[Old#h]]`) and any remaining body wikilinks to it are updated everywhere in the root. If the new name is shared with another note, the rewritten wikilinks are path-qualified so they stay unambiguous;
+  - when a move or rename makes an existing bare wikilink ambiguous (a second `Tasks.md` arrives where one was), those wikilinks are path-qualified to the note they pointed at before.
+  It refuses, changing nothing, if the destination exists or leaves the root. It computes every edit before touching the disk. `--dry-run` lists the move and every edit. Inside a git work tree it moves with `git mv` so history follows; otherwise with a plain rename. It prints every file it changed.
 
 ### The hook
 
