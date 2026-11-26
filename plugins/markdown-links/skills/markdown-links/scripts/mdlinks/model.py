@@ -43,3 +43,11 @@ class Link:
     @property
     def block_ref(self) -> bool:
         return self.anchor is not None and self.anchor.startswith("^")
+
+
+@dataclass(frozen=True)
+class MdTarget:
+    path: Optional[Path]  # None when nothing matched
+    exact_case: bool  # False when only a case-insensitive match was found
+    outside_root: bool  # resolved path is not under the root
+    note_relative: bool  # False when read from the root or found by name
