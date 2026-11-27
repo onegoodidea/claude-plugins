@@ -44,14 +44,12 @@ python3 "<base>/scripts/markdown-links.py" mv [--dry-run] <src> <dst>
 
 It rewrites links into and out of the moved notes and prints every file it changed. Use `--dry-run` first for a large move.
 
-If a move happened another way (`git mv`, a file manager, a notes app), or a hook message names `relink` after a shell command, run `relink` on the root, then `check`:
+If a move happened another way (`git mv`, a file manager, a notes app), or a hook message names `relink` after a shell command, run `relink` on the root, then `check`. `relink` repairs links that now point nowhere and lists any it can’t; add `--dry-run` to preview.
 
 ```
 python3 "<base>/scripts/markdown-links.py" relink <root>
 python3 "<base>/scripts/markdown-links.py" check <root>
 ```
-
-`relink` repairs links that now point nowhere and lists any it can’t. Add `--dry-run` to preview.
 
 ## After a hook error
 
@@ -74,6 +72,7 @@ python3 "<base>/scripts/markdown-links.py" check <root>
 1. `init <folder>`
 2. `convert --dry-run <folder>`, then review each change it lists.
 3. `convert <folder>`
-4. `check <folder>`
+4. `relink <folder>`. It repairs the shortest-path links a notes app wrote (a bare filename for a note in another folder), which are now broken same-folder links.
+5. `check <folder>`
 
 Give `convert` the root folder itself; it refuses a subfolder. It changes only links. It leaves ambiguous, unresolved, and block-reference wikilinks alone, and broken links too, and lists them for the owner.

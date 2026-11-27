@@ -273,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("path", nargs="?", default=".")
     p.set_defaults(func=_cmd_check)
 
-    p = add("convert", help="turn wikilinks and non-relative links into note-relative links")
+    p = add("convert", help="turn wikilinks and root-absolute links into note-relative links")
     p.add_argument("root", nargs="?", default=".")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.set_defaults(func=_cmd_convert)

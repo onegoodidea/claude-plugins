@@ -46,7 +46,7 @@ Dot-folders such as `.git` are always skipped. An excluded folder is invisible: 
 - **Skipped:** fenced code blocks, inline code, and HTML comments. External links (`https:`, `mailto:`, and other schemes) are never checked or rewritten.
 - **Wikilink matching** is by filename, case-insensitive, with `.md` optional. `[[Folder/Note]]` matches the note whose path ends that way. A bare name shared by several notes is ambiguous, so qualify it.
 - **Block references** (`[[Note#^abc123]]`) have no portable form. `convert` leaves them and `check` reports them as warnings.
-- **Root-absolute** Markdown links (`/People/Jane.md`) are errors. `convert` rewrites them relative to the note. A bare filename (`[Decisions](Decisions.md)`) is a same-folder link like any other, never matched by name elsewhere in the root. Any link that doesn’t resolve from its note is broken: `convert` leaves it for you, and `relink` repairs it if its target moved.
+- **Root-absolute** Markdown links (`/People/Jane.md`) are errors. `convert` rewrites them relative to the note. A bare filename (`[Decisions](Decisions.md)`) is a same-folder link like any other, never matched by name elsewhere in the root. Any link that doesn’t resolve from its note is broken: `convert` leaves it for you, and `relink` repairs it if its target moved, or if it’s a bare filename for a note in another folder (the shortest-path links a notes app writes).
 
 ## Commands
 
@@ -132,7 +132,7 @@ Moves done outside the script (shell `mv`, `git mv`, a file manager) aren’t ca
 
 ### `relink [root] [--dry-run] [--json]`
 
-Repairs links broken by moves made outside `mv`: body Markdown links whose target is gone, and frontmatter wikilinks that match no note. It reads staged renames from git when the root is in a work tree, and otherwise looks for the one file with the same name. It prints one line per link it changes, then an error for each broken link it couldn’t repair. With `--dry-run` it writes nothing. It never rewrites a link to a file deleted in git (reported as `broken link (deleted in git)`); the skill has Claude list those links and ask what to do with each.
+Repairs links broken by moves made outside `mv`: body Markdown links whose target is gone, and frontmatter wikilinks that match no note. It follows renames git recorded (staged or committed) when the root is in a work tree, and otherwise looks for a file with the same name. For a path git tracked, only a file git doesn’t have yet counts, so a deleted note’s links aren’t pointed at another note of the same name. A link whose target differs only in case is rewritten to the spelling on disk. It prints one line per link it changes, then an error for each broken link it couldn’t repair. With `--dry-run` it writes nothing. It never rewrites a link to a file deleted in git (reported as `broken link (deleted in git)`); the skill has Claude list those links and ask what to do with each.
 
 ```
 markdown-links.py relink --dry-run ~/Notes
@@ -158,7 +158,8 @@ The `<version>` folder changes when the plugin updates. An alias or a symlink to
 1. Update whatever else writes links into the folder (other skills, routines, scripts) so it writes relative Markdown links, or the hook will report every wikilink it adds. This plugin doesn’t change them.
 2. `init` the folder.
 3. `convert --dry-run`, review the list, then `convert`.
-4. `check` and fix what’s left. Ambiguous and unresolved wikilinks are listed for you to fix by hand.
+4. `relink`. It repairs the shortest-path links a notes app wrote (`[Jane](Jane%20Doe.md)` for a note in another folder), which are now broken same-folder links.
+5. `check` and fix what’s left. Ambiguous and unresolved wikilinks are listed for you to fix by hand.
 
 Close Obsidian before running `mv`: running it with Obsidian open hasn’t been tested yet.
 
