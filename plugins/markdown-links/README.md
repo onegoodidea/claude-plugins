@@ -46,7 +46,7 @@ Dot-folders such as `.git` are always skipped. An excluded folder is invisible: 
 - **Skipped:** fenced code blocks, inline code, and HTML comments. External links (`https:`, `mailto:`, and other schemes) are never checked or rewritten.
 - **Wikilink matching** is by filename, case-insensitive, with `.md` optional. `[[Folder/Note]]` matches the note whose path ends that way. A bare name shared by several notes is ambiguous, so qualify it.
 - **Block references** (`[[Note#^abc123]]`) have no portable form. `convert` leaves them and `check` reports them as warnings.
-- **Not note-relative** Markdown links (a bare filename for a note in another folder, or `/People/Jane.md`) are errors. `convert` repairs them when the filename matches exactly one note. Any other link that doesn’t resolve from its note is broken, and `convert` leaves it for you.
+- **Root-absolute** Markdown links (`/People/Jane.md`) are errors. `convert` rewrites them relative to the note. A bare filename (`[Decisions](Decisions.md)`) is a same-folder link like any other, never matched by name elsewhere in the root. Any link that doesn’t resolve from its note is broken: `convert` leaves it for you, and `relink` repairs it if its target moved.
 
 ## Commands
 

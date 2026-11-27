@@ -117,17 +117,17 @@ class ConvertTests(unittest.TestCase):
             "A/x.md": (
                 "[J](Jane%20Doe.md)\n"
                 "[J](/People/Jane%20Doe.md)\n"
-                "[J](<Jane Doe.md#top>)\n"
-                "[J](Jane%20Doe.md#top)\n"
-                "![i](Jane%20Doe.md)\n"
-                "[ref]: Jane%20Doe.md\n"
+                "[J](</People/Jane Doe.md#top>)\n"
+                "[J](/People/Jane%20Doe.md#top)\n"
+                "![i](/People/Jane%20Doe.md)\n"
+                "[ref]: /People/Jane%20Doe.md\n"
                 "[ok](../People/Jane%20Doe.md)\n"
             ),
         }
         new, count, _ = self.convert(files, "A/x.md")
         self.assertEqual(
             new,
-            "[J](../People/Jane%20Doe.md)\n"
+            "[J](Jane%20Doe.md)\n"
             "[J](../People/Jane%20Doe.md)\n"
             "[J](<../People/Jane Doe.md#top>)\n"
             "[J](../People/Jane%20Doe.md#top)\n"
@@ -135,7 +135,13 @@ class ConvertTests(unittest.TestCase):
             "[ref]: ../People/Jane%20Doe.md\n"
             "[ok](../People/Jane%20Doe.md)\n",
         )
-        self.assertEqual(count, 6)
+        self.assertEqual(count, 5)
+
+    def test_convert_leaves_bare_filename(self):
+        files = {"Other/Tasks.md": "", "Notes/a.md": "[t](Tasks.md)\n[r](/Other/Tasks.md)\n"}
+        new, count, _ = self.convert(files, "Notes/a.md")
+        self.assertEqual(new, "[t](Tasks.md)\n[r](../Other/Tasks.md)\n")
+        self.assertEqual(count, 1)
 
     def test_convert_leaves_broken_path_links(self):
         # A target with a "/" that doesn't resolve from the note is broken, not guessed at.
@@ -156,7 +162,7 @@ class ConvertTests(unittest.TestCase):
         pairs = [
             ("[[N]]", "[N](N.md)"),
             ("[[N|Al]]", "[Al](N.md)"),
-            ("[J](Jane.md)", "[J](P/Jane.md)"),
+            ("[J](/P/Jane.md)", "[J](P/Jane.md)"),
         ]
         template = (
             "# Title  \n\n"
@@ -216,7 +222,7 @@ class ConvertTests(unittest.TestCase):
             "N.md": "# H\n",
             "People/Jane Doe.md": "",
             "p.png": b"x",
-            "A/x.md": "[[N#H]] [[N|Al]] ![[p.png]] [J](Jane%20Doe.md) [[#H]]\n# H\n",
+            "A/x.md": "[[N#H]] [[N|Al]] ![[p.png]] [J](/People/Jane%20Doe.md) [[#H]]\n# H\n",
         }
         r = self.load(files)
         convert.convert_root(r, dry_run=False)

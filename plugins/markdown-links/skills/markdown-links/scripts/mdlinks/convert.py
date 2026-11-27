@@ -58,7 +58,7 @@ def _wiki_replacement(
 
 
 def _repair_replacement(root: Root, note: Path, link: Link) -> Optional[str]:
-    """link.raw with its target made note-relative, or None to leave it alone."""
+    """link.raw with a root-absolute target made note-relative, or None to leave it alone."""
     found = resolve.md_target(root, note, link.target)
     if found.path is None or found.note_relative:
         return None

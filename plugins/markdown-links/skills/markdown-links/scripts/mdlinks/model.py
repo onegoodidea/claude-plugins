@@ -50,4 +50,4 @@ class MdTarget:
     path: Optional[Path]  # None when nothing matched
     exact_case: bool  # False when only a case-insensitive match was found
     outside_root: bool  # resolved path is not under the root
-    note_relative: bool  # False when read from the root or found by name
+    note_relative: bool  # False when read from the root (a leading /)

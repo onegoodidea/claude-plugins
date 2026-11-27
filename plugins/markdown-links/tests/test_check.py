@@ -60,6 +60,19 @@ class CheckTests(unittest.TestCase):
             ("error", 2, "broken link: [root](Alpha/Tasks.md)"),
         ])
 
+    def test_check_bare_filename_broken(self):
+        root_dir = self.base / "root"
+        root_dir.mkdir()
+        text = "[t](Tasks.md)\n[s](same.md)\n[r](/Other/Tasks.md)\n"
+        helpers.make_root(root_dir, {"Notes/a.md": text, "Notes/Same.md": "", "Other/Tasks.md": ""})
+        r = rootmod.load(root_dir)
+        got = [(f.level, f.line, f.message) for f in check.check_file(r, r.path / "Notes/a.md")]
+        self.assertEqual(got, [
+            ("error", 1, "broken link: [t](Tasks.md)"),
+            ("error", 2, "case differs from the file on disk: [s](same.md)"),
+            ("error", 3, "not relative to this note; run convert: [r](/Other/Tasks.md)"),
+        ])
+
     def test_outside_root_warning(self):
         (self.base / "out.md").write_text("")
         root_dir = self.base / "root"

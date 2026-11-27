@@ -57,10 +57,10 @@ class ResolveTests(unittest.TestCase):
         self.assertFalse(t.exact_case)
 
     def test_md_target_not_note_relative(self):
-        for target in ("Jane%20Doe.md", "/People/Jane%20Doe.md"):
-            t = resolve.md_target(self.r, self.tasks, target)
-            self.assertEqual(t.path, self.jane)
-            self.assertFalse(t.note_relative)
+        t = resolve.md_target(self.r, self.tasks, "/People/Jane%20Doe.md")
+        self.assertEqual(t.path, self.jane)
+        self.assertFalse(t.note_relative)
+        self.assertIsNone(resolve.md_target(self.r, self.tasks, "Jane%20Doe.md").path)
 
     def test_md_target_outside_and_missing(self):
         t = resolve.md_target(self.r, self.tasks, "../../x.md")
@@ -72,6 +72,12 @@ class ResolveTests(unittest.TestCase):
         self.assertIsNone(resolve.md_target(self.r, self.tasks, "../Templates/T.md").path)
         t = resolve.md_target(self.r, self.tasks, "")
         self.assertEqual((t.path, t.exact_case, t.outside_root, t.note_relative), (self.tasks, True, False, True))
+
+    def test_bare_filename_not_found_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            helpers.make_root(tmp, {"Notes/a.md": "", "Other/Tasks.md": ""})
+            r = rootmod.load(Path(tmp))
+            self.assertIsNone(resolve.md_target(r, r.path / "Notes/a.md", "Tasks.md").path)
 
 
 class UnicodeFormTests(unittest.TestCase):
@@ -95,8 +101,9 @@ class UnicodeFormTests(unittest.TestCase):
         self.assertEqual((t.path, t.exact_case, t.note_relative), (self.cafe, False, True))
         t = resolve.md_target(self.r, self.note, "../Cafe%CC%81.md")
         self.assertEqual((t.path, t.exact_case), (self.cafe, True))
-        t = resolve.md_target(self.r, self.note, "Caf%C3%A9.md")
+        t = resolve.md_target(self.r, self.note, "/Caf%C3%A9.md")
         self.assertEqual((t.path, t.exact_case, t.note_relative), (self.cafe, False, False))
+        self.assertIsNone(resolve.md_target(self.r, self.note, "Caf%C3%A9.md").path)
 
 
 if __name__ == "__main__":

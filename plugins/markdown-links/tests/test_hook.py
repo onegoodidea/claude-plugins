@@ -118,6 +118,14 @@ class BashHookTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("3 broken links in", err)
 
+    def test_bash_hook_counts_same_folder_links(self):
+        (self.root / "People/Team.md").write_text(
+            "[a](Jane%20Doe.md) [b](Jane%20Doe.md#Role)\n", encoding="utf-8")
+        self.move()
+        code, err = hook.run(bash('mv "People/Jane Doe.md" Archive/', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn("3 broken links in", err)
+
     def test_bash_hook_finds_root_from_path(self):
         self.move()
         outside = self.tmp / "elsewhere"

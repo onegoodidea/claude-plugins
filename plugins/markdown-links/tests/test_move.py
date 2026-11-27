@@ -105,7 +105,7 @@ class MoveTests(unittest.TestCase):
                 "A/x.md": x,
                 "A/y.md": "",
                 "A/sub/w.md": "",
-                "A/z.md": "[j](Jane.md)\n",
+                "A/z.md": "[j](/People/Jane.md)\n",
                 "People/Jane.md": "",
             },
             "A", "Archive/A",

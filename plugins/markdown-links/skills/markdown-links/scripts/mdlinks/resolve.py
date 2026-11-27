@@ -97,12 +97,6 @@ def md_target(root: Root, from_note: Path, target: str) -> MdTarget:
         found = _walk(root, root.path, decoded.split("/"))
         return result(found, False) if found else MdTarget(None, True, False, False)
 
+    # Everything else, a bare filename included, resolves only from the note's folder.
     found = _walk(root, Path(from_note).parent, decoded.split("/"))
-    if found:
-        return result(found, True)
-    if "/" not in decoded:
-        # A bare filename for a file in another folder: found by name when only one has it.
-        hits = root.by_name.get(paths.fold(decoded), [])
-        if len(hits) == 1:
-            return MdTarget(hits[0], hits[0].name == decoded, False, False)
-    return MdTarget(None, True, False, True)
+    return result(found, True) if found else MdTarget(None, True, False, True)

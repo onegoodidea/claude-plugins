@@ -196,6 +196,30 @@ class RelinkTests(unittest.TestCase):
                          [("Notes/a.md", 1, "[t](../Research/Tasks.md)",
                            "[t](../Archive/Research/Tasks.md)")])
 
+    def test_relink_same_folder_target_moved(self):
+        self.make({"AGENTS.md": "[Blueprint](Blueprint.md)\n",
+                   "Blueprint.md": "[Start](Start.md)\n", "Start.md": ""})
+        (self.base / "Archive").mkdir()
+        os.rename(self.base / "Blueprint.md", self.base / "Archive/Blueprint.md")
+        self.assertEqual(relink.count_broken(self.load()), 2)
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("AGENTS.md"), "[Blueprint](Archive/Blueprint.md)\n")
+        self.assertEqual(self.read("Archive/Blueprint.md"), "[Start](../Start.md)\n")
+        self.assertEqual(relink.count_broken(self.load()), 0)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_same_folder_git_rm_not_repointed(self):
+        self.git_repo({"Decisions.md": "", "Home.md": "[Decisions](Decisions.md)\n"})
+        self.make({"Ideas/Old/Decisions.md": ""})
+        self.git("rm", "-q", "Decisions.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual([(f.level, f.file, f.line, f.message) for f in findings],
+                         [("error", "Home.md", 1,
+                           "broken link (deleted in git): [Decisions](Decisions.md)")])
+        self.assertEqual(self.read("Home.md"), "[Decisions](Decisions.md)\n")
+
     def test_relink_tie_left_alone(self):
         self.make({"Archive/A/Tasks.md": "", "Archive/B/Tasks.md": "",
                    "Notes/a.md": "[t](../Research/Tasks.md)\n"})
