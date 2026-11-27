@@ -270,14 +270,18 @@ def _renamed_target(
     root: Root, note: Path, link: Link, git: GitView,
 ) -> Tuple[Optional[Path], Path]:
     """Step 1 of the repair order: where the link points once the note's own recorded move is
-    accounted for, or where git renamed its target. Also returns the path the link names,
-    for the by-name step."""
-    olds = git.olds.get(note, [])  # where this note was before git moved it, most recent first
-    for old_note in olds:
-        found = resolve.md_target(root, old_note, link.target).path
-        if found is not None:
-            return found, old_note
-    named = _named(root, olds[0] if olds else note, link.target)
+    accounted for, or where git renamed its target. Also returns the path the link names
+    from the note's current location, for the by-name step and the deleted-in-git test."""
+    # A renamed note's link is read from an earlier location only when, from there, it names
+    # a file in the root or a path git renamed; otherwise it's read as if the note never moved.
+    named = _named(root, note, link.target)
+    for old_note in git.olds.get(note, []):  # most recent first
+        found = resolve.md_target(root, old_note, link.target)
+        if found.path is not None and not found.outside_root:
+            return found.path, named
+        moved = git.renamed(_named(root, old_note, link.target))
+        if moved is not None and moved.is_file():
+            return moved, named
     moved = git.renamed(named)
     if moved is not None and moved.is_file():
         return moved, named

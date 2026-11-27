@@ -366,6 +366,55 @@ class RelinkTests(unittest.TestCase):
         self.assertEqual([f.message for f in findings],
                          ["broken link (deleted in git): [t](../Projects/Tasks.md)"])
 
+    BODY = "A note with enough text for git to see the rename.\nAnother line here.\n"
+
+    def renamed_notes_with_fixed_links(self):
+        """Notes moved in an earlier commit, their links fixed in that same commit."""
+        self.git_repo({
+            "Decisions.md": "d\n", "Field Notes.md": "a\n", "Home.md": "[Decisions](Decisions.md)\n",
+            "Blueprint.md": self.BODY + "[Decisions](Decisions.md)\n",
+            "Research/R.md": self.BODY + "[Decisions](../Decisions.md) [A](../Field%20Notes.md)\n",
+        })
+        (self.base / "Archive/Research").mkdir(parents=True)
+        self.git("mv", "Blueprint.md", "Archive/Blueprint.md")
+        self.git("mv", "Research/R.md", "Archive/Research/R.md")
+        self.make({
+            "Archive/Blueprint.md": self.BODY + "[Decisions](../Decisions.md)\n",
+            "Archive/Research/R.md": self.BODY + "[Decisions](../../Decisions.md) [A](../../Field%20Notes.md)\n",
+        })
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "move")
+        self.assertEqual(relink.count_broken(self.load()), 0)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_renamed_note_shell_rm_reported_deleted(self):
+        self.renamed_notes_with_fixed_links()
+        self.make({"Ideas/Old/Decisions.md": "unrelated\n"})
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "idea")
+        os.remove(self.base / "Decisions.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual(sorted((f.file, f.message) for f in findings), [
+            ("Archive/Blueprint.md", "broken link (deleted in git): [Decisions](../Decisions.md)"),
+            ("Archive/Research/R.md", "broken link (deleted in git): [Decisions](../../Decisions.md)"),
+            ("Home.md", "broken link (deleted in git): [Decisions](Decisions.md)"),
+        ])
+        self.assertEqual(self.read("Archive/Blueprint.md"), self.BODY + "[Decisions](../Decisions.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_renamed_note_gets_a_later_rename(self):
+        self.renamed_notes_with_fixed_links()
+        # A.md sorts first, and its broken link makes relink read the git history before
+        # it gets to the renamed note.
+        self.make({"A.md": "[g](gone.md)\n"})
+        (self.base / "Ideas").mkdir()
+        self.git("mv", "Field Notes.md", "Ideas/Field Notes Draft.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual([(f.file, f.message) for f in findings], [("A.md", "broken link: [g](gone.md)")])
+        self.assertEqual(self.read("Archive/Research/R.md"), self.BODY +
+                         "[Decisions](../../Decisions.md) [A](../../Ideas/Field%20Notes%20Draft.md)\n")
+
     def test_relink_tie_left_alone(self):
         self.make({"Archive/A/Tasks.md": "", "Archive/B/Tasks.md": "",
                    "Notes/a.md": "[t](../Research/Tasks.md)\n"})
