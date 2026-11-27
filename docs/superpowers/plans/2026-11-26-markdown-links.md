@@ -545,3 +545,7 @@ Added 2026-11-27. Spec: the amended skill bullet on links to a note deleted on p
 - [ ] **Step 1: Edit** the two files.
 - [ ] **Step 2: Run** `wc -l skills/markdown-links/SKILL.md` (expected: under 80), `grep -rniw vault plugins/markdown-links` (expected: no output), and `python3 -m unittest discover -s tests` (expected: all pass).
 - [ ] **Step 3: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: skill asks what to do with links to deleted notes"`.
+
+### Task 16: Fix wave from the review of Tasks 10-15
+
+Added 2026-11-27. Spec: the rewritten `relink` bullet, the hook paragraph’s “only the broken links this command could have caused”, the adoption bullet under The skill, and the `convert` Tests bullet. The findings and required tests are in the workspace file `final-fix-2-findings.md`.
