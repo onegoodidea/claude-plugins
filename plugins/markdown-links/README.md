@@ -73,11 +73,11 @@ warning: Bad.md:1: wikilink matches no file: [[Nope]]
 error: Bad.md:1: broken link: [x](Missing.md)
 ```
 
-Errors: a body link to a missing file (or one that differs only in case or Unicode form), a non-relative link, a body wikilink that matches exactly one note (it should be a Markdown link), and a frontmatter wikilink that matches no note or more than one. Warnings: unresolved or ambiguous body wikilinks, note transclusions (`![[Note]]`), block references, a missing heading anchor, and links that leave the root.
+Errors: a body link to a missing file (or one that differs only in case or Unicode form), a root-absolute link (`/People/Jane.md`), a body wikilink that matches exactly one note (it should be a Markdown link), and a frontmatter wikilink that matches no note or more than one. Warnings: unresolved or ambiguous body wikilinks, note transclusions (`![[Note]]`), block references, a missing heading anchor, and links that leave the root.
 
 ### `convert [root] [--dry-run]`
 
-Rewrites every body wikilink that matches exactly one file, and repairs non-relative Markdown links. `[[Name|Alias]]` becomes `[Alias](path)`, `[[Name#Heading]]` becomes `[Name](path#Heading)`, `![[image.png]]` becomes `![](path)`, and an embedded attachment such as a PDF becomes `[file.pdf](path)`. An embed’s alias becomes the image’s alt text (`![[image.png|A chart]]` becomes `![A chart](path)`) or the attachment’s link text; a size such as `|300` or `|300x200` has no Markdown form, so it’s dropped with a warning. Frontmatter, code, ambiguous, unresolved, and transcluded links are left alone and listed.
+Rewrites every body wikilink that matches exactly one file, and rewrites root-absolute Markdown links (`/People/Jane.md`) to note-relative paths. `[[Name|Alias]]` becomes `[Alias](path)`, `[[Name#Heading]]` becomes `[Name](path#Heading)`, `![[image.png]]` becomes `![](path)`, and an embedded attachment such as a PDF becomes `[file.pdf](path)`. An embed’s alias becomes the image’s alt text (`![[image.png|A chart]]` becomes `![A chart](path)`) or the attachment’s link text; a size such as `|300` or `|300x200` has no Markdown form, so it’s dropped with a warning. Frontmatter, code, ambiguous, unresolved, and transcluded links are left alone and listed.
 
 It works on a whole root: give it the root folder (or run it there), and it refuses a subfolder. It prints one line per link it changes, the error and warning counts before and after, then the errors left and the links it couldn’t convert. With `--dry-run` it writes nothing, and “after” is what a real run would leave.
 
@@ -141,7 +141,7 @@ markdown-links.py relink ~/Notes
 
 ## How Claude uses it
 
-The skill tells Claude to ask `link` for body links, to move and rename with `mv`, to run `relink` after a move made another way, to fix the link named in any hook error, and to run `check` after bulk edits. The hook runs `check` on each `.md` file Claude writes or edits. On errors it reports them to Claude in the same turn. It also runs after `Bash` commands that contain `mv` or `git mv`: if the move left broken links in a root, it prints one line naming the count and the `relink` command to run. Warnings alone stay quiet, so notes with old unresolved wikilinks don’t nag on every edit.
+The skill tells Claude to ask `link` for body links, to move and rename with `mv`, to run `relink` after a move made another way, to fix the link named in any hook error, and to run `check` after bulk edits. The hook runs `check` on each `.md` file Claude writes or edits. On errors it reports them to Claude in the same turn. It also runs after `Bash` commands that contain `mv`, `git mv`, `rm`, or `git rm`: if the command left broken links in a root, it prints one line naming the count and the `relink` command to run. Warnings alone stay quiet, so notes with old unresolved wikilinks don’t nag on every edit.
 
 ## Running it from a shell
 

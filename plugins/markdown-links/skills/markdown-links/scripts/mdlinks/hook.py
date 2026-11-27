@@ -22,7 +22,7 @@ def run(payload_text: str) -> Tuple[int, str]:
         return 0, ""
 
 
-MOVE = re.compile(r"(?:^|[\s;&|(])(?:git\s+)?mv\s")
+MOVE_OR_REMOVE = re.compile(r"(?:^|[\s;&|(])(?:git\s+)?(?:mv|rm)\s")
 SCRIPT = Path(__file__).resolve().parent.parent / "markdown-links.py"
 MAX_ROOTS = 5
 
@@ -51,7 +51,7 @@ def _bash_roots(command: str, cwd: str) -> List[Path]:
 
 def _run_bash(payload: dict) -> Tuple[int, str]:
     command = payload["tool_input"]["command"]
-    if not isinstance(command, str) or not MOVE.search(command) or "markdown-links.py" in command:
+    if not isinstance(command, str) or not MOVE_OR_REMOVE.search(command) or "markdown-links.py" in command:
         return 0, ""
     cwd = payload.get("cwd")
     lines = []

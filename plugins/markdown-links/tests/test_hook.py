@@ -110,6 +110,31 @@ class BashHookTest(unittest.TestCase):
             f'markdown-links: 1 broken link in {self.root}; '
             f'run: python3 "{script}" relink "{self.root}"\n')
 
+    def test_bash_hook_after_git_rm(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-q", "-m", "fixture"], cwd=self.root, check=True)
+        subprocess.run(["git", "rm", "-q", "People/Jane Doe.md"], cwd=self.root, check=True)
+        code, err = hook.run(bash('git rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertIn("1 broken link", err)
+        self.assertIn("relink", err)
+
+    def test_bash_hook_after_rm(self):
+        os.remove(self.root / "People/Jane Doe.md")
+        code, err = hook.run(bash('rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertIn("1 broken link", err)
+        self.assertIn("relink", err)
+
+    def test_bash_hook_rm_lookalikes_silent(self):
+        self.move()
+        for command in ("npm run format", "chmod +x a.sh", "echo farm"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
     def test_bash_hook_plural(self):
         (self.root / "Notes/Other.md").write_text(
             "[a](../People/Jane%20Doe.md) [b](Gone.md)\n", encoding="utf-8")
