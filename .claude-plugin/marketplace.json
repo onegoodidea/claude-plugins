@@ -14,6 +14,11 @@
       "name": "context-strip",
       "source": "./plugins/context-strip",
       "description": "A row above the prompt showing how full the session’s context window is, with the checklist’s summary beside it."
+    },
+    {
+      "name": "markdown-links",
+      "source": "./plugins/markdown-links",
+      "description": "Keeps links between Markdown notes working everywhere: converts [[wikilinks]] to relative links, writes and checks links, and moves notes without breaking them."
     }
   ]
 }

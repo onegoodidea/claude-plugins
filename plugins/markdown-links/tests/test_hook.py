@@ -1,0 +1,309 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests import helpers
+from mdlinks import hook
+
+ENTRY = helpers.SCRIPTS / "markdown-links.py"
+
+
+def payload(path, **extra):
+    return json.dumps({"tool_input": {"file_path": str(path)}, **extra})
+
+
+class HookTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name).resolve()
+
+    def test_hook_errors_exit_2(self):
+        root = helpers.make_root(self.tmp, {"a.md": "See [[Jane Doe]].\n", "Jane Doe.md": "x\n"})
+        code, err = hook.run(payload(root / "a.md"))
+        self.assertEqual(code, 2)
+        self.assertTrue(err.startswith("markdown-links: fix these links in a.md:\n"))
+        self.assertIn("use a Markdown link", err)
+
+    def test_hook_warnings_only_silent(self):
+        root = helpers.make_root(self.tmp, {"a.md": "See [[Nope]].\n"})
+        self.assertEqual(hook.run(payload(root / "a.md")), (0, ""))
+
+    def test_hook_clean(self):
+        root = helpers.make_root(self.tmp, {"a.md": "See [b](b.md).\n", "b.md": "x\n"})
+        self.assertEqual(hook.run(payload(root / "a.md")), (0, ""))
+
+    def test_hook_ignores_odd_payloads(self):
+        root = helpers.make_root(self.tmp / "r", {
+            "a.md": "[[Jane]]\n", "n.txt": "[[Jane]]\n", "bad.md": b"\xff\xfe bad",
+            "gone.md": "x\n", "Jane.md": "x\n", "skip/e.md": "[[Jane]]\n",
+        }, {"exclude": ["skip"]})
+        (root / "gone.md").unlink()
+        outside = helpers.make_root(self.tmp / "o", {"a.md": "[[Jane]]\n", "Jane.md": "x\n"}, None)
+        cases = [
+            "not json", "{}", "[]", '{"tool_input": "x"}', '{"tool_input": {"file_path": 5}}',
+            payload(root / "n.txt"), payload(root / "gone.md"), payload(outside / "a.md"),
+            payload(root / "bad.md"), payload(root / "skip" / "e.md"),
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(hook.run(text), (0, ""))
+
+    def test_hook_malformed_config_is_silent(self):
+        root = helpers.make_root(self.tmp, {"a.md": "[[Jane]]\n", "Jane.md": "x\n"}, None)
+        (root / ".markdown-links.json").write_text("{nope", encoding="utf-8")
+        self.assertEqual(hook.run(payload(root / "a.md")), (0, ""))
+
+    def test_hook_relative_path_joins_cwd(self):
+        root = helpers.make_root(self.tmp, {"d/a.md": "[[Jane]]\n", "Jane.md": "x\n"})
+        code, err = hook.run(json.dumps({"cwd": str(root), "tool_input": {"file_path": "d/a.md"}}))
+        self.assertEqual(code, 2)
+        self.assertIn("in d/a.md:", err)
+
+    def test_hook_via_subprocess(self):
+        root = helpers.make_root(self.tmp, {"a.md": "See [[Jane Doe]].\n", "Jane Doe.md": "x\n"})
+        proc = subprocess.run(
+            [sys.executable, str(ENTRY), "hook"], input=payload(root / "a.md"),
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("use a Markdown link", proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+
+def bash(command, cwd):
+    return json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd)})
+
+
+class BashHookTest(unittest.TestCase):
+    FILES = {
+        "People/Jane Doe.md": "x\n",
+        "Notes/Call.md": "See [Jane](../People/Jane%20Doe.md).\n",
+        "Archive/.keep": "",
+    }
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name).resolve()
+        self.root = helpers.make_root(self.tmp / "root", self.FILES)
+
+    def move(self):
+        os.rename(self.root / "People/Jane Doe.md", self.root / "Archive/Jane Doe.md")
+
+    def test_bash_hook_ignores_non_moves(self):
+        self.move()
+        self.assertEqual(hook.run(bash("ls -la", self.root)), (0, ""))
+        self.assertEqual(hook.run(bash("echo summary; cat mvfile", self.root)), (0, ""))
+
+    def test_bash_hook_names_relink(self):
+        self.move()
+        code, err = hook.run(bash('mv "People/Jane Doe.md" Archive/', self.root))
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("\n"), 1)
+        script = helpers.SCRIPTS / "markdown-links.py"
+        self.assertEqual(
+            err,
+            f'markdown-links: 1 broken link in {self.root}; '
+            f'run: python3 "{script}" relink "{self.root}"\n')
+
+    def test_bash_hook_after_git_rm(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-q", "-m", "fixture"], cwd=self.root, check=True)
+        subprocess.run(["git", "rm", "-q", "People/Jane Doe.md"], cwd=self.root, check=True)
+        code, err = hook.run(bash('git rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertIn("1 broken link", err)
+        self.assertIn("relink", err)
+
+    def test_bash_hook_after_rm(self):
+        os.remove(self.root / "People/Jane Doe.md")
+        code, err = hook.run(bash('rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertIn("1 broken link", err)
+        self.assertIn("relink", err)
+
+    def test_bash_hook_rm_lookalikes_silent(self):
+        self.move()
+        for command in ("npm run format", "chmod +x a.sh", "echo farm"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
+    def test_bash_hook_plural(self):
+        (self.root / "Notes/Other.md").write_text(
+            "[a](../People/Jane%20Doe.md) [b](Gone.md)\n", encoding="utf-8")
+        self.move()
+        code, err = hook.run(bash('git mv "People/Jane Doe.md" Archive/ && rm Notes/Gone.md', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn("3 broken links in", err)
+
+    def test_bash_hook_counts_same_folder_links(self):
+        (self.root / "People/Team.md").write_text(
+            "[a](Jane%20Doe.md) [b](Jane%20Doe.md#Role)\n", encoding="utf-8")
+        self.move()
+        code, err = hook.run(bash('mv "People/Jane Doe.md" Archive/', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn("3 broken links in", err)
+
+    def test_bash_hook_finds_root_from_path(self):
+        self.move()
+        outside = self.tmp / "elsewhere"
+        outside.mkdir()
+        command = f"git mv {self.root}/People/Jane\\ Doe.md {self.root}/Archive/Jane\\ Doe.md"
+        code, err = hook.run(bash(command, outside))
+        self.assertEqual(code, 2)
+        self.assertIn(f"in {self.root};", err)
+
+    def test_bash_hook_two_roots_one_line_each(self):
+        other = helpers.make_root(self.tmp / "other", {"a.md": "[x](gone.md)\n"})
+        self.move()
+        code, err = hook.run(bash(f'mv {other}/a.md "{self.root}/People/Jane Doe.md" {self.root}/Archive/',
+                                  self.tmp))
+        self.assertEqual(code, 2)
+        lines = err.splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn(f"in {other};", lines[0])
+        self.assertIn(f"in {self.root};", lines[1])
+
+    def test_bash_hook_clean_move_silent(self):
+        self.assertEqual(hook.run(bash("mv People/Jane\\ Doe.md Archive/", self.root)), (0, ""))
+
+    def test_bash_hook_skips_own_script(self):
+        self.move()
+        command = 'python3 "/x/markdown-links.py" mv People/Jane\\ Doe.md Archive/'
+        self.assertEqual(hook.run(bash(command, self.root)), (0, ""))
+
+    def test_bash_hook_outside_any_root_silent(self):
+        outside = self.tmp / "plain"
+        outside.mkdir()
+        self.assertEqual(hook.run(bash("mv a.md b.md", outside)), (0, ""))
+
+    def test_bash_hook_odd_payloads(self):
+        self.move()
+        cases = [
+            {"tool_name": "Bash", "tool_input": {}, "cwd": str(self.root)},
+            {"tool_name": "Bash", "tool_input": {"command": 5}, "cwd": str(self.root)},
+            {"tool_name": "Bash", "tool_input": {"command": None}},
+            {"tool_name": "Bash", "tool_input": "mv a b"},
+            {"tool_name": "Bash"},
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                self.assertEqual(hook.run(json.dumps(case)), (0, ""))
+        for command, cwd in [
+            ('mv "a b', self.root), ("mv a b", self.tmp / "missing"), ("mv a b", ""),
+        ]:
+            with self.subTest(command=command, cwd=cwd):
+                code, err = hook.run(bash(command, cwd))
+                self.assertIn(code, (0, 2))
+                if code == 2:
+                    self.assertEqual(err.count("\n"), 1)
+                    self.assertIn("1 broken link in", err)
+
+    def keep_a_link_to_a_deleted_note(self):
+        (self.root / "Notes/Kept.md").write_text("[Old](Old%20Plan.md)\n", encoding="utf-8")
+
+    def test_bash_hook_ignores_breakage_the_command_did_not_cause(self):
+        self.keep_a_link_to_a_deleted_note()
+        for command in ("rm -f /tmp/x", "mv build.log build.old", "rm -rf node_modules",
+                        "echo 'git mv a b'"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
+    def test_bash_hook_counts_only_what_the_command_broke(self):
+        self.keep_a_link_to_a_deleted_note()
+        os.remove(self.root / "People/Jane Doe.md")
+        code, err = hook.run(bash('rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
+    def test_bash_hook_counts_a_moved_notes_own_links(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Archive/Deep").mkdir()
+        os.rename(self.root / "Notes/Call.md", self.root / "Archive/Deep/Call.md")
+        code, err = hook.run(bash("mv Notes/Call.md Archive/Deep/", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
+    def test_bash_hook_counts_frontmatter_wikilinks_to_a_renamed_note(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Notes/Met.md").write_text('---\nwith: "[[Jane Doe]]"\n---\n', encoding="utf-8")
+        os.rename(self.root / "People/Jane Doe.md", self.root / "People/Jane Smith.md")
+        code, err = hook.run(bash('mv "People/Jane Doe.md" "People/Jane Smith.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
+    def test_bash_hook_counts_a_case_only_rename(self):
+        (self.root / "People/Team.md").write_text("[j](Jane%20Doe.md)\n", encoding="utf-8")
+        os.rename(self.root / "People/Jane Doe.md", self.root / "People/jane doe.md")
+        code, err = hook.run(bash('mv "People/Jane Doe.md" "People/jane doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
+    def test_bash_hook_matches_a_glob(self):
+        self.keep_a_link_to_a_deleted_note()
+        for name in ("2024-01.md", "2024-02.md"):
+            (self.root / "Notes" / name).write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text(
+            "[a](Notes/2024-01.md) [b](Notes/2024-02.md)\n", encoding="utf-8")
+        for name in ("2024-01.md", "2024-02.md"):
+            os.rename(self.root / "Notes" / name, self.root / "Archive" / name)
+        code, err = hook.run(bash("mv Notes/2024-*.md Archive/", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
+    def test_bash_hook_expands_home_and_variables(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "x.md").write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text("[x](x.md)\n", encoding="utf-8")
+        os.remove(self.root / "x.md")
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.root)
+        self.addCleanup(lambda: os.environ.__setitem__("HOME", old_home) if old_home is not None
+                        else os.environ.pop("HOME", None))
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        for command in ("rm ~/x.md", 'rm "$HOME/x.md"'):
+            code, err = hook.run(bash(command, elsewhere))
+            self.assertEqual(code, 2, command)
+            self.assertIn(" 1 broken link in ", err, command)
+
+    def test_bash_hook_ignores_cd_and_the_root_itself(self):
+        self.keep_a_link_to_a_deleted_note()
+        for command in (f"cd {self.root} && rm -rf node_modules", "find . -exec rm {} \\;"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
+    def test_bash_hook_resolves_words_after_cd(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Notes/a.md").write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text("[a](Notes/a.md)\n", encoding="utf-8")
+        os.remove(self.root / "Notes/a.md")
+        code, err = hook.run(bash("cd Notes && rm a.md", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
+    def test_bash_hook_at_most_five_roots(self):
+        roots = [
+            helpers.make_root(self.tmp / f"r{i}", {"a.md": "[x](gone.md)\n"}) for i in range(7)]
+        command = "mv " + " ".join(f"{r}/a.md" for r in roots) + " dest"
+        code, err = hook.run(bash(command, self.tmp))
+        self.assertEqual(code, 2)
+        self.assertEqual(len(err.splitlines()), 5)
+
+    def test_bash_hook_via_subprocess(self):
+        self.move()
+        proc = subprocess.run(
+            [sys.executable, str(ENTRY), "hook"], input=bash('mv "People/Jane Doe.md" Archive/', self.root),
+            capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("relink", proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+
+if __name__ == "__main__":
+    unittest.main()
