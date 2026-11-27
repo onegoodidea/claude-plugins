@@ -128,7 +128,7 @@ def _moved_files(src: Path, dst: Path) -> Dict[Path, Path]:
     return moved
 
 
-def _wiki_name(root: Root, path: Path, qualified: bool) -> str:
+def wiki_name(root: Root, path: Path, qualified: bool) -> str:
     """How a wikilink names path: root-relative when qualified; notes drop .md."""
     name = rootmod.rel(root, path) if qualified else path.name
     return name[:-3] if resolve.is_note(path) else name
@@ -145,11 +145,11 @@ def _wiki_edit(root: Root, new_root: Root, moved: Dict[Path, Path], link: Link) 
     qualified = "/" in link.target.strip("/")
     name = link.target
     if new != old and (
-        qualified or _wiki_name(root, old, False) != _wiki_name(new_root, new, False)
+        qualified or wiki_name(root, old, False) != wiki_name(new_root, new, False)
     ):
-        name = _wiki_name(new_root, new, qualified)
+        name = wiki_name(new_root, new, qualified)
     if resolve.wikilink(new_root, name) != [new]:
-        name = _wiki_name(new_root, new, True)
+        name = wiki_name(new_root, new, True)
     return None if name == link.target else parse.replace_target(link, name)
 
 

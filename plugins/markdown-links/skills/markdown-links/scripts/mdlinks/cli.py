@@ -11,6 +11,7 @@ from . import check as checkmod
 from . import convert as convertmod
 from . import link as linkmod
 from . import move as movemod
+from . import relink as relinkmod
 from . import root as rootmod
 from .model import Finding, Root, format_finding
 
@@ -170,6 +171,34 @@ def _cmd_convert(args) -> int:
     return _exit_code(before if args.dry_run else after)  # a dry run leaves the disk as it was
 
 
+def _cmd_relink(args) -> int:
+    path = Path(os.path.abspath(args.root))
+    root, code = open_root(path)
+    if root is None:
+        return code
+    if path != root.path:
+        print(f"error: relink works on a whole root; run it on {root.path}", file=sys.stderr)
+        return 1
+    broken_before = relinkmod.count_broken(root) if args.dry_run else 0
+    changes, findings = relinkmod.relink_all(root, args.dry_run)
+    if args.json:
+        print(json.dumps({
+            "changes": [{"file": c.file, "line": c.line, "old": c.old, "new": c.new}
+                        for c in changes],
+            "findings": [_finding_dict(f) for f in findings],
+        }, indent=2))
+    else:
+        verb = "would relink" if args.dry_run else "relinked"
+        for c in changes:
+            print(f"{verb} {c.file}:{c.line}: {c.old} -> {c.new}")
+        files = len({c.file for c in changes})
+        print(f"{verb} {_plural(len(changes), 'link')} in {_plural(files, 'file')}")
+        print_findings(findings, False)
+    if args.dry_run:
+        return 1 if broken_before else 0  # a dry run leaves the disk as it was
+    return _exit_code(findings)
+
+
 def _cmd_link(args) -> int:
     from_note = Path(os.path.abspath(args.from_note))
     root, code = open_root(from_note.parent if not from_note.is_dir() else from_note)
@@ -248,6 +277,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("root", nargs="?", default=".")
     p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
     p.set_defaults(func=_cmd_convert)
+
+    p = add("relink", help="repair links left broken by a move made outside mv")
+    p.add_argument("root", nargs="?", default=".")
+    p.add_argument("--dry-run", action="store_true", help="report what would change; write nothing")
+    p.set_defaults(func=_cmd_relink)
 
     p = add("link", help="print a note-relative link from one note to another")
     p.add_argument("from_note", help="the note the link will be written in (may not exist yet)")
