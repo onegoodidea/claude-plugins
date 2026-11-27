@@ -245,6 +245,48 @@ class BashHookTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn(" 2 broken links in ", err)
 
+    def test_bash_hook_matches_a_glob(self):
+        self.keep_a_link_to_a_deleted_note()
+        for name in ("2024-01.md", "2024-02.md"):
+            (self.root / "Notes" / name).write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text(
+            "[a](Notes/2024-01.md) [b](Notes/2024-02.md)\n", encoding="utf-8")
+        for name in ("2024-01.md", "2024-02.md"):
+            os.rename(self.root / "Notes" / name, self.root / "Archive" / name)
+        code, err = hook.run(bash("mv Notes/2024-*.md Archive/", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
+    def test_bash_hook_expands_home_and_variables(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "x.md").write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text("[x](x.md)\n", encoding="utf-8")
+        os.remove(self.root / "x.md")
+        old_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.root)
+        self.addCleanup(lambda: os.environ.__setitem__("HOME", old_home) if old_home is not None
+                        else os.environ.pop("HOME", None))
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        for command in ("rm ~/x.md", 'rm "$HOME/x.md"'):
+            code, err = hook.run(bash(command, elsewhere))
+            self.assertEqual(code, 2, command)
+            self.assertIn(" 1 broken link in ", err, command)
+
+    def test_bash_hook_ignores_cd_and_the_root_itself(self):
+        self.keep_a_link_to_a_deleted_note()
+        for command in (f"cd {self.root} && rm -rf node_modules", "find . -exec rm {} \\;"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
+    def test_bash_hook_resolves_words_after_cd(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Notes/a.md").write_text("x\n", encoding="utf-8")
+        (self.root / "Home.md").write_text("[a](Notes/a.md)\n", encoding="utf-8")
+        os.remove(self.root / "Notes/a.md")
+        code, err = hook.run(bash("cd Notes && rm a.md", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
     def test_bash_hook_at_most_five_roots(self):
         roots = [
             helpers.make_root(self.tmp / f"r{i}", {"a.md": "[x](gone.md)\n"}) for i in range(7)]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -27,17 +28,50 @@ SCRIPT = Path(__file__).resolve().parent.parent / "markdown-links.py"
 MAX_ROOTS = 5
 
 
-def _words(command: str) -> List[str]:
+GLOB = re.compile(r"[*?[]")
+SHELL_PUNCTUATION = set("();<>|&")
+
+
+def _command_paths(command: str, cwd: str) -> Tuple[List[str], List[str]]:
+    """The paths the command's words name, read the way the shell would: ~ and $VAR expanded,
+    and resolved against cwd as cd and pushd change it. Command names and redirections aren't
+    paths. Returns the paths and the folders cd moved to."""
     try:
-        return shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
-        return command.split()
+        tokens = command.split()
+    base = os.path.abspath(cwd or ".")
+    found: List[str] = []
+    folders: List[str] = []
+    at_command = True  # the next word names a program
+    changing_dir = False  # the next word is cd's folder
+    for token in tokens:
+        if token and set(token) <= SHELL_PUNCTUATION:
+            if set(token) & set(";&|("):
+                at_command, changing_dir = True, False
+            continue
+        word = os.path.expandvars(os.path.expanduser(token))
+        if not word:
+            continue
+        if at_command:
+            at_command = False
+            changing_dir = word in ("cd", "pushd")
+            continue
+        path = os.path.normpath(os.path.join(base, word))
+        if changing_dir:
+            if not word.startswith("-"):
+                base, changing_dir = path, False
+                folders.append(path)
+            continue
+        found.append(path)
+    return found, folders
 
 
 def _bash_roots(words: List[str], cwd: str) -> List[Path]:
     folders = [cwd] if cwd else []
-    for word in words:
-        path = os.path.join(cwd, word) if cwd else word
+    for path in words:
         if os.path.exists(path):
             folders.append(path)  # find_root starts from a file's folder
         elif os.path.isdir(os.path.dirname(path)):
@@ -52,41 +86,68 @@ def _bash_roots(words: List[str], cwd: str) -> List[Path]:
     return roots
 
 
-def _wikilink_within(root_key: str, target: str, within: List[str]) -> bool:
-    """A wikilink names a file by its trailing path, so it is under a command path when that
-    path covers the root, or ends with the start of the target: People/ or Jane Doe.md for
-    [[People/Jane Doe]]."""
+class _Top:
+    """A command path, normalized and folded; a word with glob characters matches as a
+    pattern, one path segment at a time, as the shell would."""
+
+    def __init__(self, path: str):
+        self.key = paths.key(path).rstrip("/")
+        self.segments = self.key.split("/")
+        self.glob = GLOB.search(self.key) is not None
+
+    def covers(self, key: str) -> bool:
+        """key is at or under this path (or under a folder this pattern matches)."""
+        if not self.glob:
+            return key == self.key or key.startswith(self.key + "/")
+        segments = key.split("/")
+        return len(segments) >= len(self.segments) and all(
+            _segment_matches(s, p) for s, p in zip(segments, self.segments))
+
+
+def _segment_matches(segment: str, pattern: str) -> bool:
+    return segment == pattern or (GLOB.search(pattern) is not None
+                                  and fnmatch.fnmatchcase(segment, pattern))
+
+
+def _wikilink_within(root_segments: List[str], target: str, tops: List[_Top]) -> bool:
+    """A wikilink names a file by its trailing path, so it is under a command path that ends
+    with the start of the target: People/ or Jane Doe.md for [[People/Jane Doe]]."""
     segments = paths.fold(target.strip().strip("/")).split("/")
     forms = [segments[:-1] + [segments[-1] + ".md"]] if not segments[-1].endswith(".md") else []
     if os.path.splitext(segments[-1])[1]:
         forms.append(segments)
-    for top in within:
-        if paths.at_or_under(root_key, top):
-            return True
-        if not paths.at_or_under(top, root_key):
+    for top in tops:
+        head, tail = top.segments[:len(root_segments)], top.segments[len(root_segments):]
+        if len(head) < len(root_segments) or not all(
+                _segment_matches(s, p) for s, p in zip(root_segments, head)):
             continue
-        tail = top[len(root_key.rstrip("/")) + 1:].split("/")
         for form in forms:
-            if any(tail[-k:] == form[:k] for k in range(1, min(len(tail), len(form)) + 1)):
-                return True
+            for k in range(1, min(len(tail), len(form)) + 1):
+                if all(_segment_matches(f, p) for f, p in zip(form[:k], tail[-k:])):
+                    return True
     return False
 
 
-def _caused_by(root: Root, within: List[str]) -> Callable[[Path, Link], bool]:
+def _caused_by(root: Root, command_paths: List[str]) -> Callable[[Path, Link], bool]:
     """Whether a link could have been broken by a command naming these paths: the path it
-    names, or the note that holds it, is at or under one of them."""
-    root_key = paths.key(root.path)
+    names, or the note that holds it, is at or under one of them. A path that is the root
+    itself or above it is ignored, so cd <root> or find . doesn't count every link."""
+    root_key = paths.key(root.path).rstrip("/")
+    tops = [top for top in map(_Top, command_paths) if not top.covers(root_key)]
+    root_segments = root_key.split("/")
     holder: Dict[Path, bool] = {}
 
     def counts(note: Path, link: Link) -> bool:
+        if not tops:
+            return False
         if note not in holder:
-            holder[note] = any(paths.at_or_under(paths.key(note), top) for top in within)
+            holder[note] = any(top.covers(paths.key(note)) for top in tops)
         if holder[note]:
             return True
         if link.kind in ("wiki", "embed"):
-            return _wikilink_within(root_key, link.target, within)
+            return _wikilink_within(root_segments, link.target, tops)
         named = paths.key(relink._named(root, note, link.target))
-        return any(paths.at_or_under(named, top) for top in within)
+        return any(top.covers(named) for top in tops)
 
     return counts
 
@@ -97,13 +158,12 @@ def _run_bash(payload: dict) -> Tuple[int, str]:
         return 0, ""
     cwd = payload.get("cwd")
     cwd = cwd if isinstance(cwd, str) else ""
-    words = _words(command)
-    within = [paths.key(os.path.abspath(os.path.join(cwd, w))) for w in words if w]
+    command_paths, folders = _command_paths(command, cwd)
     lines = []
-    for root_path in _bash_roots(words, cwd):
+    for root_path in _bash_roots(folders + command_paths, cwd):
         try:
             root = rootmod.load(root_path)
-            broken = relink.count_broken(root, _caused_by(root, within))
+            broken = relink.count_broken(root, _caused_by(root, command_paths))
         except Exception:
             continue  # one unreadable root (bad config) shouldn't hide the others
         if broken:

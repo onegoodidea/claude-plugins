@@ -22,10 +22,6 @@ def key(path) -> str:
     return fold(os.path.normpath(str(path)))
 
 
-def at_or_under(path_key: str, top_key: str) -> bool:
-    return path_key == top_key or path_key.startswith(top_key.rstrip("/") + "/")
-
-
 def encode(posix_path: str) -> str:
     return "/".join(urllib.parse.quote(seg, safe="") for seg in posix_path.split("/"))
 
