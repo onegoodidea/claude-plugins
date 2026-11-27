@@ -161,7 +161,9 @@ The `<version>` folder changes when the plugin updates. An alias or a symlink to
 4. `relink`. It repairs the shortest-path links a notes app wrote (`[Jane](Jane%20Doe.md)` for a note in another folder), which are now broken same-folder links.
 5. `check` and fix what’s left. Ambiguous and unresolved wikilinks are listed for you to fix by hand.
 
-Close Obsidian before running `mv`: running it with Obsidian open hasn’t been tested yet.
+## With Obsidian open
+
+Safe with Obsidian open. In a test with a notes folder open in Obsidian, `mv` of a linked note and of a whole folder left every note as `mv` wrote it; Obsidian changed only its own `.obsidian/workspace.json`.
 
 ## Credit
 
