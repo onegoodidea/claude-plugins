@@ -456,3 +456,28 @@ Spec: the second paragraph of The hook, and the amended skill bullets.
 - [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
 - [ ] **Step 5: Time it.** The 5,000-note root from Task 8 (3 links each), one link broken, `mv` payload: median of 5 runs of `python3 …/markdown-links.py hook` at most 2.0 seconds. Also time a non-`mv` payload: median at most 0.1 seconds. Record both in the commit message.
 - [ ] **Step 6: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: hook after Bash moves names relink (median <N>s on 5,000 notes)"`.
+
+### Task 12: `relink` leaves links to files deleted in git
+
+Added 2026-11-27. Spec: the sentence on deleted paths in the `relink` bullet.
+
+**Files:**
+- Modify: `mdlinks/relink.py`
+- Test: `tests/test_relink.py`
+
+**Interfaces:**
+- Produces: `relink.git_deleted(root: Root) -> Set[Path]`: absolute paths under the root that git records as deleted on purpose. Two sources, both with `--no-optional-locks` and `-c status.renames=true` / `-M` so renames never count:
+  - staged deletions: index status `D` in `git status --porcelain=v1 -z` (first column `D`), excluding rename sources;
+  - committed deletions: `git log -M --diff-filter=D --name-only --format= -z` (one call, run only when some broken link reaches the by-name step).
+  Empty outside a git work tree or without git. Paths come back relative to the repo top level; resolve them the way `git_renames` does.
+- `relink_all` skips the by-name step for a link whose named path is in `git_deleted`, and reports it as an `error` finding with the message `broken link (deleted in git): <shown>`. Renames (steps 1 and 2) still win first.
+
+- [ ] **Step 1: Write the failing tests** (skip without git):
+  - `test_relink_skips_git_rm`: `Notes/a.md` links to `../Old/Tasks.md`; root `Tasks.md` exists; commit; `git rm Old/Tasks.md`. The link is unchanged, and the finding message starts `broken link (deleted in git):`.
+  - `test_relink_skips_committed_delete`: the same, but the `git rm` is committed.
+  - `test_relink_shell_mv_still_repairs`: in git, `os.rename("People/Jane Doe.md", "Archive/Jane Doe.md")` (unstaged), and the link is repaired by name.
+  - `test_relink_committed_rename_not_deleted`: `git mv` a file and commit; a link to the old path is repaired by name (the committed rename isn’t treated as a deletion).
+- [ ] **Step 2: Run** `python3 -m unittest tests.test_relink -v`. Expected: the new tests fail.
+- [ ] **Step 3: Implement** `git_deleted` and the skip.
+- [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
+- [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: relink leaves links to files deleted in git"`.
