@@ -5,7 +5,7 @@ description: "Use when writing, editing, linking, moving, or renaming Markdown n
 
 # Markdown links
 
-Notes in a folder with `.markdown-links.json` (the root) use relative Markdown links, not `[[wikilinks]]`. A hook checks every `.md` file you write or edit. Folders without the marker file are left alone.
+Notes in a folder with `.markdown-links.json` (the root) use relative Markdown links, not `[[wikilinks]]`. A hook checks every `.md` file you write or edit, and flags broken links after a shell `mv`. Folders without the marker file are left alone.
 
 ## Link rules
 
@@ -22,7 +22,7 @@ It lives at `scripts/markdown-links.py` in this skill’s base directory, which 
 python3 "<base>/scripts/markdown-links.py" <command> ...
 ```
 
-Commands: `init`, `check`, `convert`, `link`, `mv`. Add `--json` for machine-readable output.
+Commands: `init`, `check`, `convert`, `link`, `mv`, `relink`. Add `--json` for machine-readable output.
 
 ## Writing a link
 
@@ -36,13 +36,22 @@ python3 "<base>/scripts/markdown-links.py" link <from-note> <to>
 
 ## Moving or renaming
 
-Use `mv` to move or rename a note or folder. Never use shell `mv`, `git mv`, or a file manager: they leave links pointing at the old path.
+Use `mv` to move or rename a note or folder. It uses `git mv` for tracked files. Never use shell `mv`.
 
 ```
 python3 "<base>/scripts/markdown-links.py" mv [--dry-run] <src> <dst>
 ```
 
 It rewrites links into and out of the moved notes and prints every file it changed. Use `--dry-run` first for a large move.
+
+If a move happened another way (`git mv`, a file manager, a notes app), or a hook message names `relink` after a shell command, run `relink` on the root, then `check`:
+
+```
+python3 "<base>/scripts/markdown-links.py" relink <root>
+python3 "<base>/scripts/markdown-links.py" check <root>
+```
+
+`relink` repairs links that now point nowhere and lists any it can’t. Add `--dry-run` to preview.
 
 ## After a hook error
 
