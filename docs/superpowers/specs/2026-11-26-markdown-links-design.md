@@ -76,7 +76,8 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 - **Skipped when parsing:** fenced code blocks (any fence length, including inside blockquotes), inline code, and HTML comments. External links (`http:`, `https:`, `mailto:`, and other schemes) are never checked or rewritten.
 - **Recognized when reading:** inline links, angle-bracket targets (`[x](<a b.md>)`), reference-style definitions, and both encoded and unencoded targets. Writing always uses the encoded form.
 - **Block references** (`[[Note#^abc123]]`, `[[#^abc123]]`) have no portable equivalent. `convert` leaves them, and `check` reports them as warnings, not errors, so the hook stays quiet. (Builder’s call.)
-- **Markdown links that aren’t note-relative** (a bare filename for a note in another folder, or a root-absolute `/People/Jane.md`) are errors in `check`. `convert` repairs them when the filename resolves to exactly one note, rewriting them to note-relative paths; a leading `/` is read as the root. (Builder’s call.)
+- **Root-absolute Markdown links** (`/People/Jane.md`) are errors in `check`. `convert` rewrites them to note-relative paths, reading the leading `/` as the root. (Builder’s call.)
+- **A bare filename** (`[Decisions](Decisions.md)`) is a same-folder link like any other: if no file of that name sits next to the note, it’s a broken link, never resolved by searching the root for that name. `relink` repairs it with the same git-aware rules as any broken link, so a same-folder target that moved is found and one deleted in git isn’t replaced by an unrelated file of the same name. (Amended 2026-11-27; this replaces `convert`’s earlier by-name repair of bare filenames.)
 - **Heading anchors** are checked against the target note’s headings, matched on the decoded heading text, case-insensitive. A missing heading is a warning, not an error. (Builder’s call.)
 
 ### Commands

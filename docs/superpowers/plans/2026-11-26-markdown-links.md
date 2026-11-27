@@ -481,3 +481,30 @@ Added 2026-11-27. Spec: the sentence on deleted paths in the `relink` bullet.
 - [ ] **Step 3: Implement** `git_deleted` and the skip.
 - [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
 - [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: relink leaves links to files deleted in git"`.
+
+### Task 13: A bare filename is a same-folder link
+
+Added 2026-11-27 after the trial on a real notes folder: after a same-folder target moved or was `git rm`-ed, `[Decisions](Decisions.md)` resolved by name to any `Decisions.md` in the root, so `check` called it “not relative; run convert”, `relink.is_broken` didn’t count it, the hook undercounted, and `convert` would point it at an unrelated file. Spec: the two Link rules bullets on root-absolute links and bare filenames.
+
+**Files:**
+- Modify: `mdlinks/resolve.py` (`md_target`), `mdlinks/check.py`, `mdlinks/convert.py`, `mdlinks/relink.py`, `SKILL.md` and `README.md` only where they describe bare-filename repair
+- Test: `tests/test_resolve.py`, `tests/test_check.py`, `tests/test_convert.py`, `tests/test_relink.py`, `tests/test_hook.py`
+
+**Rules:**
+- `resolve.md_target` no longer falls back to a by-name search for a target without `/`. A target with a leading `/` still resolves from the root (`note_relative=False`). Everything else resolves only from the note’s folder (case-insensitive walk as today; `exact_case=False` when only the case differs).
+- `check`: a bare filename with no file beside the note is `broken link: …`. Root-absolute stays `not relative to this note; run convert: …`.
+- `convert` no longer repairs bare filenames; it still rewrites root-absolute links.
+- `relink.is_broken` follows from `md_target` with no change of its own; `relink`’s by-name step scores a bare filename as `<note folder>/<filename>`, and the deleted-in-git skip applies to it.
+- Update every existing test that asserted the old by-name behavior; list each one in the report with the old and new expectation.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `test_bare_filename_not_found_by_name` (resolve): `Notes/a.md` with target `Tasks.md` and only `Other/Tasks.md` present: `path is None`.
+  - `test_check_bare_filename_broken` (check): that link is `broken link:`.
+  - `test_convert_leaves_bare_filename` (convert): unchanged; root-absolute `/Other/Tasks.md` still converted to `../Other/Tasks.md`.
+  - `test_relink_same_folder_target_moved` (relink, no git): `AGENTS.md` links `[Blueprint](Blueprint.md)`; `os.rename` it into `Archive/`; relink writes `Archive/Blueprint.md`. The moved note’s own same-folder links (`[Start](Start.md)` from inside `Archive/Blueprint.md`) become `../Start.md`.
+  - `test_relink_same_folder_git_rm_not_repointed` (relink, git): root `Decisions.md` committed, `Ideas/Old/Decisions.md` untracked, `git rm Decisions.md`; `[Decisions](Decisions.md)` in a root note is unchanged and reported `broken link (deleted in git):`.
+  - `test_bash_hook_counts_same_folder_links` (hook): after a shell move of a same-folder target, the count includes those links.
+- [ ] **Step 2: Run** the five test modules. Expected: the new tests fail.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
+- [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: a bare filename is a same-folder link, repaired by relink"`.
