@@ -508,3 +508,23 @@ Added 2026-11-27 after the trial on a real notes folder: after a same-folder tar
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
 - [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: a bare filename is a same-folder link, repaired by relink"`.
+
+### Task 14: The hook fires after `rm` too, and README wording
+
+Added 2026-11-27. Spec: the second paragraph of The hook.
+
+**Files:**
+- Modify: `mdlinks/hook.py` (the move pattern), `README.md` (the hook line; and the Link rules wording that still says “non-relative” where it means root-absolute)
+- Test: `tests/test_hook.py`
+
+**Rules:**
+- The pattern becomes `(?:^|[\s;&|(])(?:git\s+)?(?:mv|rm)\s`. Rename the constant to say what it matches. Nothing else in the Bash path changes; the message line is the same.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `test_bash_hook_after_git_rm`: in a git root, `git rm` a note another note links to; payload command `git rm "People/Jane Doe.md"` returns 2 and one line containing `1 broken link` and `relink`.
+  - `test_bash_hook_after_rm`: the same with `os.remove` and command `rm "People/Jane Doe.md"`, no git.
+  - `test_bash_hook_rm_lookalikes_silent`: `git rmdir` isn’t a thing, so use words that only contain `rm`: `npm run format`, `chmod +x a.sh`, `echo farm`, each returns `(0, "")` in a root with a broken link.
+- [ ] **Step 2: Run** `python3 -m unittest tests.test_hook -v`. Expected: the first two fail.
+- [ ] **Step 3: Implement** and fix the README wording.
+- [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
+- [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: hook also names relink after rm and git rm"`.

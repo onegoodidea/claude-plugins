@@ -112,7 +112,7 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 
 A single-file check has to finish in about a second on a root of 5,000 notes. That covers walking the root to build the filename index.
 
-The hook also runs after `Bash`, to catch moves Claude makes from the shell. It costs nothing unless the command contains `mv` as a command word (`mv …` or `git mv …`, found by a pattern match on the command text) and doesn’t run `markdown-links.py`, which keeps links right on its own. When it does, it finds the roots at or above the payload’s `cwd` and at or above each path in the command that exists after it ran (or whose parent folder does), up to 5 roots. In each, it counts the broken links `relink` repairs: body links whose target doesn’t exist and frontmatter wikilinks that match no note. If any root has some, it exits `2` with one line per such root and nothing else: `markdown-links: <N> broken links in <root>; run: python3 "<script>" relink "<root>"`. It never lists the links themselves (`relink` does), so a move costs Claude one line, and a clean move costs nothing. It has to finish in 2 seconds on a root of 5,000 notes.
+The hook also runs after `Bash`, to catch moves and deletions Claude makes from the shell. It costs nothing unless the command contains `mv` or `rm` as a command word (`mv …`, `git mv …`, `rm …`, or `git rm …`, found by a pattern match on the command text; amended 2026-11-27 to add `rm`) and doesn’t run `markdown-links.py`, which keeps links right on its own. When it does, it finds the roots at or above the payload’s `cwd` and at or above each path in the command that exists after it ran (or whose parent folder does), up to 5 roots. In each, it counts the broken links `relink` repairs: body links whose target doesn’t exist and frontmatter wikilinks that match no note. If any root has some, it exits `2` with one line per such root and nothing else: `markdown-links: <N> broken links in <root>; run: python3 "<script>" relink "<root>"`. It never lists the links themselves (`relink` does), so a move costs Claude one line, and a clean move costs nothing. It has to finish in 2 seconds on a root of 5,000 notes.
 
 ### The skill
 
@@ -150,7 +150,7 @@ The hook also runs after `Bash`, to catch moves Claude makes from the shell. It 
 - `mv` of a file, a rename, and a folder move each leave `check` clean; refusals change nothing; `--dry-run` writes nothing.
 - `link` output resolves from notes at several depths.
 - `relink` repairs a `git mv` rename (body and frontmatter links, and the renamed note’s own links), a shell-moved folder by trailing-path match, and a moved note’s outgoing links; leaves a tie alone; writes nothing on `--dry-run`; preserves CRLF and a BOM; works outside git.
-- The `Bash` hook is silent for a command without `mv` even in a root with broken links, names `relink` in one line after a move that broke links, is silent after a clean move and after `markdown-links.py` commands, and ignores odd payloads.
+- The `Bash` hook is silent for a command without `mv` or `rm` even in a root with broken links, names `relink` in one line after a move or deletion that broke links, is silent after a clean move and after `markdown-links.py` commands, and ignores odd payloads.
 
 ## Left to the builder
 
