@@ -122,6 +122,7 @@ The hook also runs after `Bash`, to catch moves and deletions Claude makes from 
 - to write a body link, run `link` instead of composing the path by hand;
 - to move or rename a note or folder, run `mv`, which uses `git mv` for tracked files and rewrites links; never shell `mv`;
 - if a move happened some other way (`git mv`, a file manager, a notes app), or the hook names `relink` after a shell command, run `relink` on the root, then `check`;
+- links to a note deleted on purpose (`relink` reports them as `broken link (deleted in git)`, and frontmatter wikilinks to it as `wikilink matches no file`) stay as they are: no command rewrites them. At the end of the work, list them for the user and ask what each should become: removed along with its text, kept as plain text without the link, left as is, or pointed at another file (write the new target with `link`). Do only what the user chooses. In a non-interactive run, leave them and put the list in the run report (amended 2026-11-27);
 - after a hook error, fix the link the error names; don’t silence the hook;
 - run `check` on the root after bulk edits;
 - to bring a new folder in: `init`, then `convert --dry-run`, review, `convert`, then `check`.

@@ -528,3 +528,20 @@ Added 2026-11-27. Spec: the second paragraph of The hook.
 - [ ] **Step 3: Implement** and fix the README wording.
 - [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
 - [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: hook also names relink after rm and git rm"`.
+
+### Task 15: Skill guidance for links to deleted notes
+
+Added 2026-11-27. Spec: the amended skill bullet on links to a note deleted on purpose. Docs only; no code changes.
+
+**Files:**
+- Modify: `skills/markdown-links/SKILL.md`, `README.md` (one sentence in the `relink` section)
+
+**Content:**
+- `SKILL.md`, in the `relink` section: links to a note deleted on purpose are left as they are (`broken link (deleted in git)` in the body, `wikilink matches no file` in frontmatter). At the end of the work, list them for the user and ask what each should become: removed along with its text, kept as plain text without the link, left as is, or pointed at another file (write the new target with `link`). Do only what the user chooses. In a non-interactive run, leave them and put the list in the run report.
+- The hook will keep flagging an edited note that still holds such a link; say in the skill that this is expected until the user decides, and not a reason to change the link unasked.
+- `README.md`: one sentence saying `relink` never rewrites links to a file deleted in git, and that the skill has Claude ask what to do with them.
+- Keep `SKILL.md` under 80 lines.
+
+- [ ] **Step 1: Edit** the two files.
+- [ ] **Step 2: Run** `wc -l skills/markdown-links/SKILL.md` (expected: under 80), `grep -rniw vault plugins/markdown-links` (expected: no output), and `python3 -m unittest discover -s tests` (expected: all pass).
+- [ ] **Step 3: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: skill asks what to do with links to deleted notes"`.
