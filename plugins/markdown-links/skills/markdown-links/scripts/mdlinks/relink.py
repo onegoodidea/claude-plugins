@@ -50,12 +50,14 @@ def _status_entries(root: Root) -> List[str]:
     return [os.fsdecode(e) for e in status.split(b"\0")] if status else []
 
 
-def _staged(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
-    """From git status: staged renames as (old, new) repo paths, and the paths that are new
-    to the index (staged as added, or a rename or copy destination)."""
+def _staged(root: Root) -> Tuple[List[Tuple[str, str]], Set[str], Set[str]]:
+    """From git status: staged renames as (old, new) repo paths, the paths that are new to
+    the index (staged as added, or a rename or copy destination), and the paths staged for
+    deletion (a rename source is listed with its rename instead)."""
     entries = _status_entries(root)
     renames: List[Tuple[str, str]] = []
     new: Set[str] = set()
+    deleted: Set[str] = set()
     i = 0
     while i < len(entries):
         entry = entries[i]
@@ -70,17 +72,20 @@ def _staged(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
                 renames.append((old, path))
         if x in "ARC" or y == "A":
             new.add(path)
-    return renames, new
+        elif x == "D":
+            deleted.add(path)
+    return renames, new, deleted
 
 
-def _committed(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
-    """From one git log, oldest commit first: committed renames as (old, new) repo paths, and
-    every path any commit touched."""
+def _committed(root: Root) -> Tuple[List[Tuple[str, str]], Set[str], Set[str]]:
+    """From one git log, oldest commit first: committed renames as (old, new) repo paths,
+    every path any commit touched, and the paths a commit deleted (not rename sources)."""
     log = _git(root, "log", "-M", "--name-status", "--format=", "-z", "--reverse",
                config=("diff.renames=true", "log.showSignature=false"))
     tokens = [os.fsdecode(t) for t in (log or b"").split(b"\0") if t]
     renames: List[Tuple[str, str]] = []
     touched: Set[str] = set()
+    deleted: Set[str] = set()
     i = 0
     while i < len(tokens):
         status = tokens[i].lstrip("\n")
@@ -94,8 +99,10 @@ def _committed(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
                     renames.append((old, new))
         elif i < len(tokens):
             touched.add(tokens[i])
+            if status == "D":
+                deleted.add(tokens[i])
             i += 1
-    return renames, touched
+    return renames, touched, deleted
 
 
 def _chain(steps: List[Tuple[str, str]]) -> Dict[str, List[str]]:
@@ -116,11 +123,12 @@ class GitView:
     def __init__(self, root: Root):
         self._root = root
         self._in_root = _git_paths(root)
-        staged, self._new = _staged(root) if self._in_root else ([], set())
+        staged, self._new, self._staged_deleted = _staged(root) if self._in_root else ([], set(), set())
         self._staged = staged
         self.complete = self._in_root is None  # nothing more to read from git
         self._tracked: Set[str] = set()
         self._held: Set[str] = set()
+        self._deleted: Set[str] = set()
         self._set_renames(staged)
 
     def _set_renames(self, steps: List[Tuple[str, str]]) -> None:
@@ -148,9 +156,12 @@ class GitView:
         if self.complete or self._in_root is None:
             return False
         self.complete = True
-        committed, touched = _committed(self._root)
+        committed, touched, committed_deleted = _committed(self._root)
         index = _git(self._root, "ls-files", "-z", "--full-name") or b""
         in_index = {os.fsdecode(p) for p in index.split(b"\0") if p}
+        # a path a commit deleted but that git has again isn't deleted in git
+        deleted = (committed_deleted - in_index) | self._staged_deleted
+        self._deleted = {paths.key(p) for p in map(self._in_root, deleted) if p is not None}
         self._tracked = {paths.key(p) for p in map(self._in_root, touched | in_index) if p is not None}
         self._held = {paths.key(p) for p in map(self._in_root, in_index - self._new) if p is not None}
         self._set_renames(committed + self._staged)
@@ -160,6 +171,12 @@ class GitView:
         """Git ever had this path: in HEAD or the index, or touched by a commit."""
         self.load_history()
         return paths.key(path) in self._tracked
+
+    def was_deleted(self, path: Path) -> bool:
+        """Git records this path as deleted on purpose: staged for deletion, or deleted in a
+        commit and not back in the index. A rename source doesn't count."""
+        self.load_history()
+        return paths.key(path) in self._deleted
 
     def has(self, path: Path) -> bool:
         """Git has a file at this path already (in HEAD and the index), so it isn't where a
@@ -280,6 +297,8 @@ def _repaired_target(root: Root, note: Path, link: Link, git: GitView) -> Tuple[
         return target, False
     if not git.was_tracked(named):
         return _by_filename(root, named)[0], False
+    if git.was_deleted(named):  # git rm or a committed deletion: never another file
+        return None, True
     # A move leaves the file at a path git hasn't recorded; a deletion doesn't.
     target, any_new = _by_filename(root, named, lambda path: not git.has(path))
     return target, not any_new

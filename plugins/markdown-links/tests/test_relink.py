@@ -334,9 +334,8 @@ class RelinkTests(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_relink_same_folder_git_rm_not_repointed(self):
-        # Ideas/Old/Decisions.md is tracked at its own path, so it isn't where Decisions.md went.
-        self.git_repo({"Decisions.md": "", "Home.md": "[Decisions](Decisions.md)\n",
-                       "Ideas/Old/Decisions.md": ""})
+        self.git_repo({"Decisions.md": "", "Home.md": "[Decisions](Decisions.md)\n"})
+        self.make({"Ideas/Old/Decisions.md": ""})
         self.git("rm", "-q", "Decisions.md")
         changes, findings = relink.relink_all(self.load(), False)
         self.assertEqual(changes, [])
@@ -344,6 +343,28 @@ class RelinkTests(unittest.TestCase):
                          [("error", "Home.md", 1,
                            "broken link (deleted in git): [Decisions](Decisions.md)")])
         self.assertEqual(self.read("Home.md"), "[Decisions](Decisions.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_git_rm_untracked_same_name_not_repointed(self):
+        self.git_repo({"Projects/Tasks.md": "t\n", "Notes/a.md": "[t](../Projects/Tasks.md)\n"})
+        self.make({"Drafts/Tasks.md": "new, not yet committed\n"})
+        self.git("rm", "-q", "Projects/Tasks.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual([(f.file, f.line, f.message) for f in findings],
+                         [("Notes/a.md", 1, "broken link (deleted in git): [t](../Projects/Tasks.md)")])
+        self.assertEqual(self.read("Notes/a.md"), "[t](../Projects/Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_committed_delete_untracked_same_name_not_repointed(self):
+        self.git_repo({"Projects/Tasks.md": "t\n", "Notes/a.md": "[t](../Projects/Tasks.md)\n"})
+        self.git("rm", "-q", "Projects/Tasks.md")
+        self.git("commit", "-q", "-m", "remove")
+        self.make({"Drafts/Tasks.md": "new, not yet committed\n"})
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual([f.message for f in findings],
+                         ["broken link (deleted in git): [t](../Projects/Tasks.md)"])
 
     def test_relink_tie_left_alone(self):
         self.make({"Archive/A/Tasks.md": "", "Archive/B/Tasks.md": "",
