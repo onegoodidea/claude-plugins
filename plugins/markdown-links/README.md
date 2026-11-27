@@ -128,7 +128,7 @@ updated People/Jane.md
 updated Projects/Plan.md
 ```
 
-Moves done outside the script (shell `mv`, `git mv`, a file manager) aren’t caught as they happen. Use `relink` to repair them.
+When Claude moves or deletes files from the shell (`mv`, `git mv`, `rm`, `git rm`), the hook names `relink` if links broke. Moves made in a file manager or notes app aren’t seen as they happen; run `relink` after them.
 
 ### `relink [root] [--dry-run] [--json]`
 
@@ -141,7 +141,7 @@ markdown-links.py relink ~/Notes
 
 ## How Claude uses it
 
-The skill tells Claude to ask `link` for body links, to move and rename with `mv`, to run `relink` after a move made another way, to fix the link named in any hook error, and to run `check` after bulk edits. The hook runs `check` on each `.md` file Claude writes or edits. On errors it reports them to Claude in the same turn. It also runs after `Bash` commands that contain `mv`, `git mv`, `rm`, or `git rm`: if the command left broken links in a root, it prints one line naming the count and the `relink` command to run. Warnings alone stay quiet, so notes with old unresolved wikilinks don’t nag on every edit.
+The skill tells Claude to write body links directly (asking `link` only when unsure of a path), to move and rename with `mv`, to run `relink` after a move made another way, to fix the link named in any hook error, and to run `check` after bulk edits. The hook runs `check` on each `.md` file Claude writes or edits. On errors it reports them to Claude in the same turn. It also runs after `Bash` commands that contain `mv`, `git mv`, `rm`, or `git rm`: if the command left broken links in a root, it prints one line naming the count and the `relink` command to run. Warnings alone stay quiet, so notes with old unresolved wikilinks don’t nag on every edit.
 
 ## Running it from a shell
 

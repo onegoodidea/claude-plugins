@@ -123,7 +123,7 @@ The hook also runs after `Bash`, to catch moves and deletions Claude makes from 
 `skills/markdown-links/SKILL.md`, with the script alongside it at `skills/markdown-links/scripts/markdown-links.py`, so the skill can name it by its own base directory and the hook by `${CLAUDE_PLUGIN_ROOT}`. The skill’s description triggers on writing, editing, linking, moving, or renaming Markdown notes, or a folder containing `.markdown-links.json`. Its body:
 
 - the link rules above, briefly;
-- to write a body link, run `link` instead of composing the path by hand;
+- write body links directly and let the hook catch mistakes; use `link` only when unsure of a note’s path or encoding (amended 2026-11-27: in the benchmark, plain agents wrote correct links on their own and routing every link through `link` added turns without changing the result);
 - to move or rename a note or folder, run `mv`, which uses `git mv` for tracked files and rewrites links; never shell `mv`;
 - if a move happened some other way (`git mv`, a file manager, a notes app), or the hook names `relink` after a shell command, run `relink` on the root, then `check`;
 - links to a note deleted on purpose (`relink` reports them as `broken link (deleted in git)`, and frontmatter wikilinks to it as `wikilink matches no file`) stay as they are: no command rewrites them. At the end of the work, list them for the user and ask what each should become: removed along with its text, kept as plain text without the link, left as is, or pointed at another file (write the new target with `link`). Do only what the user chooses. In a non-interactive run, leave them and put the list in the run report (amended 2026-11-27);

@@ -26,13 +26,13 @@ Commands: `init`, `check`, `convert`, `link`, `mv`, `relink`. Add `--json` for m
 
 ## Writing a link
 
-Run `link` instead of working out the path yourself, then paste the output into the note:
+Write links directly, following the rules above; the hook reports any you get wrong. When you can’t tell where a note is or how to encode its name, `link` prints the link:
 
 ```
 python3 "<base>/scripts/markdown-links.py" link <from-note> <to>
 ```
 
-`<to>` is a note name or a path. Add `--text "..."` to change the link text and `--heading "..."` to link to a heading. If it reports the name is ambiguous or missing, pass a path instead.
+`<to>` is a note name or a path. `--text "..."` sets the link text; `--heading "..."` adds an anchor.
 
 ## Moving or renaming
 

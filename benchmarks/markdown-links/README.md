@@ -53,3 +53,5 @@ Options: `--arms plugin,plain,rule`, `--cases write,rename`, `--model sonnet`. E
 | Time per task (mean) | 10.3 s | 9.5 s | 10.8 s |
 
 The first `shell-move` version moved notes between folders at the same depth, where no relative link can break; it was replaced and its runs are left out above.
+
+After these results, the skill stopped telling Claude to write every link through `link`. A rerun of the plugin arm (3 trials each) passed `write` 3/3 at 6.3 turns and $0.089 per task, down from 9.0 turns and $0.109, and `rename` 3/3 at 9.7 turns and $0.109, up from 7.3 and $0.099. `rename` doesn’t write new links, so its rise is likely run-to-run variance at 3 trials.
