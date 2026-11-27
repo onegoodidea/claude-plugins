@@ -138,10 +138,10 @@ class GitView:
                 self.olds[new_abs] = olds
             for old in olds:
                 self.renames[old] = new_abs
-        self._folded = {_key(old): new for old, new in self.renames.items()}
+        self._folded = {paths.key(old): new for old, new in self.renames.items()}
 
     def renamed(self, path: Path) -> Optional[Path]:
-        return self._folded.get(_key(path))
+        return self._folded.get(paths.key(path))
 
     def load_history(self) -> bool:
         """Read committed renames and tracked paths, once. True only on the call that read them."""
@@ -151,25 +151,21 @@ class GitView:
         committed, touched = _committed(self._root)
         index = _git(self._root, "ls-files", "-z", "--full-name") or b""
         in_index = {os.fsdecode(p) for p in index.split(b"\0") if p}
-        self._tracked = {_key(p) for p in map(self._in_root, touched | in_index) if p is not None}
-        self._held = {_key(p) for p in map(self._in_root, in_index - self._new) if p is not None}
+        self._tracked = {paths.key(p) for p in map(self._in_root, touched | in_index) if p is not None}
+        self._held = {paths.key(p) for p in map(self._in_root, in_index - self._new) if p is not None}
         self._set_renames(committed + self._staged)
         return True
 
     def was_tracked(self, path: Path) -> bool:
         """Git ever had this path: in HEAD or the index, or touched by a commit."""
         self.load_history()
-        return _key(path) in self._tracked
+        return paths.key(path) in self._tracked
 
     def has(self, path: Path) -> bool:
         """Git has a file at this path already (in HEAD and the index), so it isn't where a
         moved file went."""
         self.load_history()
-        return _key(path) in self._held
-
-
-def _key(path: Path) -> str:
-    return paths.fold(os.path.normpath(str(path)))
+        return paths.key(path) in self._held
 
 
 def git_renames(root: Root) -> Dict[Path, Path]:
@@ -195,12 +191,14 @@ def _readable_links(note: Path) -> Optional[Tuple[str, bool, List[Link]]]:
     return text, bom, parse.find_links(text)
 
 
-def count_broken(root: Root) -> int:
+def count_broken(root: Root, counts: Optional[Callable[[Path, Link], bool]] = None) -> int:
+    """Broken links in the root; with counts, only the links it accepts."""
     total = 0
     for note in root.notes:
         read = _readable_links(note)
         if read:
-            total += sum(is_broken(root, note, link) for link in read[2])
+            total += sum((counts is None or counts(note, link)) and is_broken(root, note, link)
+                         for link in read[2])
     return total
 
 

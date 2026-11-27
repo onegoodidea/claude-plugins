@@ -139,7 +139,7 @@ class BashHookTest(unittest.TestCase):
         (self.root / "Notes/Other.md").write_text(
             "[a](../People/Jane%20Doe.md) [b](Gone.md)\n", encoding="utf-8")
         self.move()
-        code, err = hook.run(bash("git mv a b", self.root))
+        code, err = hook.run(bash('git mv "People/Jane Doe.md" Archive/ && rm Notes/Gone.md', self.root))
         self.assertEqual(code, 2)
         self.assertIn("3 broken links in", err)
 
@@ -163,7 +163,8 @@ class BashHookTest(unittest.TestCase):
     def test_bash_hook_two_roots_one_line_each(self):
         other = helpers.make_root(self.tmp / "other", {"a.md": "[x](gone.md)\n"})
         self.move()
-        code, err = hook.run(bash(f"mv {other}/a.md {self.root}/Archive/", self.tmp))
+        code, err = hook.run(bash(f'mv {other}/a.md "{self.root}/People/Jane Doe.md" {self.root}/Archive/',
+                                  self.tmp))
         self.assertEqual(code, 2)
         lines = err.splitlines()
         self.assertEqual(len(lines), 2)
@@ -205,6 +206,38 @@ class BashHookTest(unittest.TestCase):
                     self.assertEqual(err.count("\n"), 1)
                     self.assertIn("1 broken link in", err)
 
+    def keep_a_link_to_a_deleted_note(self):
+        (self.root / "Notes/Kept.md").write_text("[Old](Old%20Plan.md)\n", encoding="utf-8")
+
+    def test_bash_hook_ignores_breakage_the_command_did_not_cause(self):
+        self.keep_a_link_to_a_deleted_note()
+        for command in ("rm -f /tmp/x", "mv build.log build.old", "rm -rf node_modules",
+                        "echo 'git mv a b'"):
+            self.assertEqual(hook.run(bash(command, self.root)), (0, ""), command)
+
+    def test_bash_hook_counts_only_what_the_command_broke(self):
+        self.keep_a_link_to_a_deleted_note()
+        os.remove(self.root / "People/Jane Doe.md")
+        code, err = hook.run(bash('rm "People/Jane Doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
+    def test_bash_hook_counts_a_moved_notes_own_links(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Archive/Deep").mkdir()
+        os.rename(self.root / "Notes/Call.md", self.root / "Archive/Deep/Call.md")
+        code, err = hook.run(bash("mv Notes/Call.md Archive/Deep/", self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 1 broken link in ", err)
+
+    def test_bash_hook_counts_frontmatter_wikilinks_to_a_renamed_note(self):
+        self.keep_a_link_to_a_deleted_note()
+        (self.root / "Notes/Met.md").write_text('---\nwith: "[[Jane Doe]]"\n---\n', encoding="utf-8")
+        os.rename(self.root / "People/Jane Doe.md", self.root / "People/Jane Smith.md")
+        code, err = hook.run(bash('mv "People/Jane Doe.md" "People/Jane Smith.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
     def test_bash_hook_at_most_five_roots(self):
         roots = [
             helpers.make_root(self.tmp / f"r{i}", {"a.md": "[x](gone.md)\n"}) for i in range(7)]
@@ -216,7 +249,7 @@ class BashHookTest(unittest.TestCase):
     def test_bash_hook_via_subprocess(self):
         self.move()
         proc = subprocess.run(
-            [sys.executable, str(ENTRY), "hook"], input=bash("mv a b", self.root),
+            [sys.executable, str(ENTRY), "hook"], input=bash('mv "People/Jane Doe.md" Archive/', self.root),
             capture_output=True, text=True)
         self.assertEqual(proc.returncode, 2)
         self.assertIn("relink", proc.stderr)
