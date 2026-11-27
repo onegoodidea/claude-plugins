@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import check, convert, parse, paths, resolve
 from . import root as rootmod
@@ -25,14 +25,14 @@ def _git(root: Root, *args: str, config: Tuple[str, ...] = ()) -> Optional[bytes
     return done.stdout if done.returncode == 0 else None
 
 
-def git_renames(root: Root) -> Dict[Path, Path]:
-    """Staged renames in the root's git work tree: absolute old path -> absolute new path."""
+def _git_paths(root: Root) -> Optional[Callable[[str], Optional[Path]]]:
+    """A resolver from a path git prints (relative to the repo top level) to an absolute path
+    under the root, or None for one outside it. None itself when there is no git work tree."""
     if shutil.which("git") is None:
-        return {}
+        return None
     top = _git(root, "rev-parse", "--show-toplevel")
-    status = _git(root, "status", "--porcelain=v1", "-z", config=("status.renames=true",))
-    if not top or not status:
-        return {}
+    if not top:
+        return None
     top_path = Path(os.path.realpath(os.fsdecode(top).strip()))
     real_root = Path(os.path.realpath(root.path))
 
@@ -42,8 +42,21 @@ def git_renames(root: Root) -> Dict[Path, Path]:
         except ValueError:
             return None
 
+    return in_root
+
+
+def _status_entries(root: Root) -> List[str]:
+    status = _git(root, "status", "--porcelain=v1", "-z", config=("status.renames=true",))
+    return [os.fsdecode(e) for e in status.split(b"\0")] if status else []
+
+
+def git_renames(root: Root) -> Dict[Path, Path]:
+    """Staged renames in the root's git work tree: absolute old path -> absolute new path."""
+    in_root = _git_paths(root)
+    entries = _status_entries(root)
+    if in_root is None or not entries:
+        return {}
     renames: Dict[Path, Path] = {}
-    entries = [os.fsdecode(e) for e in status.split(b"\0")]
     i = 0
     while i < len(entries):
         entry = entries[i]
@@ -59,6 +72,37 @@ def git_renames(root: Root) -> Dict[Path, Path]:
                 if old_abs is not None and new_abs is not None:
                     renames[old_abs] = new_abs
     return renames
+
+
+def git_deleted(root: Root) -> Set[Path]:
+    """Absolute paths under the root that git records as deleted on purpose: staged for
+    deletion (not a rename source) or removed by a commit (renames don't count)."""
+    in_root = _git_paths(root)
+    if in_root is None:
+        return set()
+    deleted: Set[Path] = set()
+
+    def add(git_path: str) -> None:
+        path = in_root(git_path)
+        if path is not None:
+            deleted.add(path)
+
+    entries = _status_entries(root)
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        if entry[0] in "RC" or entry[1] in "RC":
+            i += 1  # the original path follows; a rename source is not a deletion
+        elif entry[0] == "D":
+            add(entry[3:])
+    log = _git(root, "log", "-M", "--diff-filter=D", "--name-only", "--format=", "-z")
+    for name in (log or b"").split(b"\0"):
+        if name:
+            add(os.fsdecode(name))
+    return deleted
 
 
 def is_broken(root: Root, note: Path, link: Link) -> bool:
@@ -128,21 +172,24 @@ def _by_filename(root: Root, named: Path) -> Optional[Path]:
     return winners[0] if len(winners) == 1 else None
 
 
-def _new_target(
+def _renamed_target(
     root: Root, note: Path, link: Link,
     renames: Dict[Path, Path], reverse: Dict[Path, Path],
-) -> Optional[Path]:
+) -> Tuple[Optional[Path], Path]:
+    """Steps 1 and 2 of the repair order that need no search: where the link points once the
+    note's own move is accounted for, or where git renamed its target. Also returns the path
+    the link names, for the by-name step."""
     old_note = reverse.get(note)  # where this note was before git moved it
     base = old_note or note
     if old_note is not None:
         found = resolve.md_target(root, old_note, link.target).path
         if found is not None:
-            return found
+            return found, base
     named = _named(root, base, link.target)
     moved = renames.get(named)
     if moved is not None and moved.is_file():
-        return moved
-    return _by_filename(root, named)
+        return moved, named
+    return None, named
 
 
 def _new_wikilink(
@@ -172,6 +219,8 @@ def relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]:
         old_paths = [reverse.get(p, p) for p in root.notes + root.files]
         old_root = rootmod.index(root.path, root.exclude, old_paths)
 
+    deleted: Optional[Set[Path]] = None  # read once, and only if a link gets to the by-name step
+
     changes: List[Change] = []
     findings: List[Finding] = []
     for note in root.notes:
@@ -185,15 +234,22 @@ def relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]:
             if not is_broken(root, note, link):
                 continue
             new: Optional[str] = None
+            message = "wikilink matches no file" if link.in_frontmatter else "broken link"
             if link.in_frontmatter:
                 if old_root is not None:
                     new = _new_wikilink(root, old_root, renames, link)
             else:
-                target = _new_target(root, note, link, renames, reverse)
+                target, named = _renamed_target(root, note, link, renames, reverse)
+                if target is None:
+                    if deleted is None:
+                        deleted = git_deleted(root)
+                    if named in deleted:
+                        message = "broken link (deleted in git)"
+                    else:
+                        target = _by_filename(root, named)
                 if target is not None:
                     new = parse.replace_target(link, paths.encode(paths.relative(note, target)))
             if new is None or new == link.raw:
-                message = "wikilink matches no file" if link.in_frontmatter else "broken link"
                 findings.append(Finding("error", rel, link.line, f"{message}: {check._shown(link)}"))
             else:
                 edits.append((link, new))

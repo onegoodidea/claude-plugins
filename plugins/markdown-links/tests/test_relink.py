@@ -29,7 +29,7 @@ class RelinkTests(unittest.TestCase):
 
     def git(self, *args):
         subprocess.run(
-            ["git", "-C", str(self.base), "-c", "user.name=T", "-c", "user.email=t@example.com",
+            ["git", "-C", str(self.base), "-c", "user.name=t", "-c", "user.email=t@t",
              "-c", "commit.gpgsign=false", *args],
             check=True, capture_output=True)
 
@@ -105,6 +105,85 @@ class RelinkTests(unittest.TestCase):
     def test_git_renames_empty_without_git_work_tree(self):
         self.make({"a.md": ""})
         self.assertEqual(relink.git_renames(self.load()), {})
+
+    DELETED = {"Old/Tasks.md": "", "Tasks.md": "", "Notes/a.md": "[t](../Old/Tasks.md)\n"}
+
+    def assert_left_as_deleted(self):
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual([(f.level, f.file, f.line, f.message) for f in findings],
+                         [("error", "Notes/a.md", 1,
+                           "broken link (deleted in git): [t](../Old/Tasks.md)")])
+        self.assertEqual(self.read("Notes/a.md"), "[t](../Old/Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_skips_git_rm(self):
+        self.git_repo(self.DELETED)
+        self.git("rm", "-q", "Old/Tasks.md")
+        self.assertEqual(relink.git_deleted(self.load()), {self.base / "Old/Tasks.md"})
+        self.assert_left_as_deleted()
+        self.assertEqual(relink.count_broken(self.load()), 1)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_skips_committed_delete(self):
+        self.git_repo(self.DELETED)
+        self.git("rm", "-q", "Old/Tasks.md")
+        self.git("commit", "-q", "-m", "remove")
+        self.assertEqual(relink.git_deleted(self.load()), {self.base / "Old/Tasks.md"})
+        self.assert_left_as_deleted()
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_shell_mv_still_repairs(self):
+        self.git_repo({"People/Jane Doe.md": "", "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
+        (self.base / "Archive").mkdir()
+        os.rename(self.base / "People/Jane Doe.md", self.base / "Archive/Jane Doe.md")
+        self.assertEqual(relink.git_deleted(self.load()), set())
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_committed_rename_not_deleted(self):
+        self.git_repo({"People/Jane Doe.md": "", "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
+        (self.base / "Archive").mkdir()
+        self.git("mv", "People/Jane Doe.md", "Archive/Jane Doe.md")
+        self.git("commit", "-q", "-m", "move")
+        self.assertEqual(relink.git_deleted(self.load()), set())
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_staged_rename_is_not_a_staged_deletion(self):
+        self.git_repo({"People/Jane Doe.md": "", "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
+        (self.base / "Archive").mkdir()
+        self.git("mv", "People/Jane Doe.md", "Archive/Jane Doe.md")
+        self.assertEqual(relink.git_deleted(self.load()), set())
+
+    def test_git_deleted_empty_without_git_work_tree(self):
+        self.make({"a.md": ""})
+        self.assertEqual(relink.git_deleted(self.load()), set())
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_committed_log_runs_once_and_only_when_needed(self):
+        self.git_repo({**self.DELETED, "Notes/b.md": "[t](../Old/Tasks.md)\n",
+                       "Notes/c.md": "[t](../Tasks.md)\n"})
+        self.git("rm", "-q", "Old/Tasks.md")
+        calls = []
+        real = relink._git
+
+        def spy(root, *args, **kw):
+            calls.append(args)
+            return real(root, *args, **kw)
+
+        relink._git = spy
+        self.addCleanup(setattr, relink, "_git", real)
+        relink.relink_all(self.load(), True)
+        self.assertEqual(sum(a[0] == "log" for a in calls), 1)
+        calls.clear()
+        self.git("checkout", "-q", "HEAD", "--", "Old/Tasks.md")
+        relink.relink_all(self.load(), True)
+        self.assertEqual(sum(a[0] == "log" for a in calls), 0)
 
     def test_relink_folder_by_suffix(self):
         self.make({"Research/Tasks.md": "", "Tasks.md": "", "Notes/a.md": "[t](../Research/Tasks.md)\n"})
