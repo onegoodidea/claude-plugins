@@ -70,6 +70,16 @@ class RelinkTests(unittest.TestCase):
         self.assertEqual(relink.count_broken(self.load()), 0)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_git_renames_ignores_a_renames_off_config(self):
+        self.git_repo({"Notes/Call.md": self.CALL, "People/Jane Doe.md": self.JANE})
+        self.git("config", "status.renames", "false")
+        (self.base / "Archive").mkdir()
+        self.git("mv", "People/Jane Doe.md", "Archive/Jane Smith.md")
+        self.assertEqual(
+            relink.git_renames(self.load()),
+            {self.base / "People/Jane Doe.md": self.base / "Archive/Jane Smith.md"})
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_relink_git_rename_outgoing(self):
         self.git_repo({"Notes/Call.md": self.CALL, "People/Jane Doe.md": self.JANE})
         (self.base / "Archive/Notes/Deep").mkdir(parents=True)

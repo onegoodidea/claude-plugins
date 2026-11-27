@@ -13,9 +13,13 @@ from .model import Finding, Link, Root
 from .move import wiki_name
 
 
-def _git(root: Root, *args: str) -> Optional[bytes]:
+def _git(root: Root, *args: str, config: Tuple[str, ...] = ()) -> Optional[bytes]:
+    # --no-optional-locks keeps a read from taking the index lock (it can race a user's git).
+    cmd = ["git", "--no-optional-locks"]
+    for setting in config:
+        cmd += ["-c", setting]
     try:
-        done = subprocess.run(["git", "-C", str(root.path), *args], capture_output=True)
+        done = subprocess.run([*cmd, "-C", str(root.path), *args], capture_output=True)
     except OSError:
         return None
     return done.stdout if done.returncode == 0 else None
@@ -26,7 +30,7 @@ def git_renames(root: Root) -> Dict[Path, Path]:
     if shutil.which("git") is None:
         return {}
     top = _git(root, "rev-parse", "--show-toplevel")
-    status = _git(root, "status", "--porcelain=v1", "-z")
+    status = _git(root, "status", "--porcelain=v1", "-z", config=("status.renames=true",))
     if not top or not status:
         return {}
     top_path = Path(os.path.realpath(os.fsdecode(top).strip()))
