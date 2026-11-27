@@ -174,10 +174,14 @@ def git_renames(root: Root) -> Dict[Path, Path]:
 
 
 def is_broken(root: Root, note: Path, link: Link) -> bool:
-    """A body Markdown link to a file that isn't there, or a frontmatter wikilink that
-    matches no file. relink, its leftover report, and the Bash hook share this."""
+    """A body Markdown link to a file that isn't there, or is there only with different case
+    (a case-only rename), or a frontmatter wikilink that matches no file. relink, its leftover
+    report, and the Bash hook share this."""
     if link.kind in ("md", "image", "refdef"):
-        return link.target != "" and resolve.md_target(root, note, link.target).path is None
+        if link.target == "":
+            return False
+        found = resolve.md_target(root, note, link.target)
+        return found.path is None or not found.exact_case
     if link.kind in ("wiki", "embed") and link.in_frontmatter:
         return link.target != "" and not resolve.wikilink(root, link.target)
     return False
@@ -263,6 +267,24 @@ def _renamed_target(
     return None, named
 
 
+def _repaired_target(root: Root, note: Path, link: Link, git: GitView) -> Tuple[Optional[Path], bool]:
+    """Where a broken body link should point (None to leave it), and whether the path it
+    names is a file deleted in git."""
+    found = resolve.md_target(root, note, link.target).path
+    if found is not None:  # there, but only with different case: the spelling on disk
+        return found, False
+    target, named = _renamed_target(root, note, link, git)
+    if target is None and git.load_history():  # committed renames too, read once
+        target, named = _renamed_target(root, note, link, git)
+    if target is not None:
+        return target, False
+    if not git.was_tracked(named):
+        return _by_filename(root, named)[0], False
+    # A move leaves the file at a path git hasn't recorded; a deletion doesn't.
+    target, any_new = _by_filename(root, named, lambda path: not git.has(path))
+    return target, not any_new
+
+
 def _old_root(root: Root, git: GitView) -> Optional[Root]:
     """The root's files with each renamed one back at its earlier paths, for frontmatter
     wikilinks written before the rename."""
@@ -319,16 +341,9 @@ def relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]:
                 if new is None and git.load_history():  # committed renames too, read once
                     new = _new_wikilink(root, old_root(), git, link)
             else:
-                target, named = _renamed_target(root, note, link, git)
-                if target is None and git.load_history():
-                    target, named = _renamed_target(root, note, link, git)
-                if target is None and git.was_tracked(named):
-                    # a move leaves the file where git hasn't recorded it; a deletion doesn't
-                    target, any_new = _by_filename(root, named, lambda p: not git.has(p))
-                    if not any_new:
-                        message = "broken link (deleted in git)"
-                elif target is None:
-                    target, _ = _by_filename(root, named)
+                target, deleted = _repaired_target(root, note, link, git)
+                if deleted:
+                    message = "broken link (deleted in git)"
                 if target is not None:
                     new = parse.replace_target(link, paths.encode(paths.relative(note, target)))
             if new is None or new == link.raw:

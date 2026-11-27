@@ -291,6 +291,24 @@ class RelinkTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(self.read("ProjectA/README.md"), "[Tasks](../ProjectB/Tasks.md)\n")
 
+    def git_mv_case_only(self, old, new):
+        try:
+            self.git("mv", old, new)
+        except subprocess.CalledProcessError:  # a filesystem that needs a step in between
+            self.git("mv", old, "case-rename.tmp")
+            self.git("mv", "case-rename.tmp", new)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_case_only_rename(self):
+        self.git_repo({"note.md": self.NOTE_TEXT, "a.md": "[n](note.md) [h](note.md#Top)\n"})
+        self.git_mv_case_only("note.md", "Note.md")
+        root = self.load()
+        self.assertEqual(relink.count_broken(root), 2)
+        changes, findings = relink.relink_all(root, False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("a.md"), "[n](Note.md) [h](Note.md#Top)\n")
+        self.assertEqual([f for f in check.check_root(self.load()) if f.level == "error"], [])
+
     def test_relink_folder_by_suffix(self):
         self.make({"Research/Tasks.md": "", "Tasks.md": "", "Notes/a.md": "[t](../Research/Tasks.md)\n"})
         (self.base / "Archive").mkdir()

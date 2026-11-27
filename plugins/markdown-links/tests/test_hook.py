@@ -238,6 +238,13 @@ class BashHookTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn(" 2 broken links in ", err)
 
+    def test_bash_hook_counts_a_case_only_rename(self):
+        (self.root / "People/Team.md").write_text("[j](Jane%20Doe.md)\n", encoding="utf-8")
+        os.rename(self.root / "People/Jane Doe.md", self.root / "People/jane doe.md")
+        code, err = hook.run(bash('mv "People/Jane Doe.md" "People/jane doe.md"', self.root))
+        self.assertEqual(code, 2)
+        self.assertIn(" 2 broken links in ", err)
+
     def test_bash_hook_at_most_five_roots(self):
         roots = [
             helpers.make_root(self.tmp / f"r{i}", {"a.md": "[x](gone.md)\n"}) for i in range(7)]
