@@ -50,59 +50,131 @@ def _status_entries(root: Root) -> List[str]:
     return [os.fsdecode(e) for e in status.split(b"\0")] if status else []
 
 
-def git_renames(root: Root) -> Dict[Path, Path]:
-    """Staged renames in the root's git work tree: absolute old path -> absolute new path."""
-    in_root = _git_paths(root)
+def _staged(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
+    """From git status: staged renames as (old, new) repo paths, and the paths that are new
+    to the index (staged as added, or a rename or copy destination)."""
     entries = _status_entries(root)
-    if in_root is None or not entries:
-        return {}
-    renames: Dict[Path, Path] = {}
+    renames: List[Tuple[str, str]] = []
+    new: Set[str] = set()
     i = 0
     while i < len(entries):
         entry = entries[i]
         i += 1
         if len(entry) < 4:
             continue
-        x, y, new = entry[0], entry[1], entry[3:]
+        x, y, path = entry[0], entry[1], entry[3:]
         if x in "RC" or y in "RC":  # these carry the original path as the next entry
             old = entries[i] if i < len(entries) else ""
             i += 1
             if x == "R" and old:
-                old_abs, new_abs = in_root(old), in_root(new)
-                if old_abs is not None and new_abs is not None:
-                    renames[old_abs] = new_abs
-    return renames
+                renames.append((old, path))
+        if x in "ARC" or y == "A":
+            new.add(path)
+    return renames, new
 
 
-def git_deleted(root: Root) -> Set[Path]:
-    """Absolute paths under the root that git records as deleted on purpose: staged for
-    deletion (not a rename source) or removed by a commit (renames don't count)."""
-    in_root = _git_paths(root)
-    if in_root is None:
-        return set()
-    deleted: Set[Path] = set()
-
-    def add(git_path: str) -> None:
-        path = in_root(git_path)
-        if path is not None:
-            deleted.add(path)
-
-    entries = _status_entries(root)
+def _committed(root: Root) -> Tuple[List[Tuple[str, str]], Set[str]]:
+    """From one git log, oldest commit first: committed renames as (old, new) repo paths, and
+    every path any commit touched."""
+    log = _git(root, "log", "-M", "--name-status", "--format=", "-z", "--reverse",
+               config=("diff.renames=true", "log.showSignature=false"))
+    tokens = [os.fsdecode(t) for t in (log or b"").split(b"\0") if t]
+    renames: List[Tuple[str, str]] = []
+    touched: Set[str] = set()
     i = 0
-    while i < len(entries):
-        entry = entries[i]
+    while i < len(tokens):
+        status = tokens[i].lstrip("\n")
         i += 1
-        if len(entry) < 4:
-            continue
-        if entry[0] in "RC" or entry[1] in "RC":
-            i += 1  # the original path follows; a rename source is not a deletion
-        elif entry[0] == "D":
-            add(entry[3:])
-    log = _git(root, "log", "-M", "--diff-filter=D", "--name-only", "--format=", "-z")
-    for name in (log or b"").split(b"\0"):
-        if name:
-            add(os.fsdecode(name))
-    return deleted
+        if status[:1] in ("R", "C"):
+            old, new = tokens[i:i + 2] if i + 1 < len(tokens) else ("", "")
+            i += 2
+            if old and new:
+                touched.update((old, new))
+                if status[0] == "R":
+                    renames.append((old, new))
+        elif i < len(tokens):
+            touched.add(tokens[i])
+            i += 1
+    return renames, touched
+
+
+def _chain(steps: List[Tuple[str, str]]) -> Dict[str, List[str]]:
+    """Renames in the order they happened -> newest path: every path it was renamed from,
+    most recent first. A -> B -> C gives {C: [B, A]}."""
+    olds: Dict[str, List[str]] = {}  # path -> its earlier paths, oldest first
+    for old, new in steps:
+        olds.setdefault(new, []).extend([*olds.pop(old, []), old])
+    return {new: [p for p in reversed(was) if p != new] for new, was in olds.items()}
+
+
+class GitView:
+    """What git knows about the root's paths. Staged renames are read up front (one git
+    status); committed renames and the paths git ever tracked come from one git log, read
+    only when a link needs them (load_history). Outside a git work tree, or without git,
+    there are no renames and no path was ever tracked."""
+
+    def __init__(self, root: Root):
+        self._root = root
+        self._in_root = _git_paths(root)
+        staged, self._new = _staged(root) if self._in_root else ([], set())
+        self._staged = staged
+        self.complete = self._in_root is None  # nothing more to read from git
+        self._tracked: Set[str] = set()
+        self._held: Set[str] = set()
+        self._set_renames(staged)
+
+    def _set_renames(self, steps: List[Tuple[str, str]]) -> None:
+        self.renames: Dict[Path, Path] = {}  # absolute old path -> absolute newest path
+        self.olds: Dict[Path, List[Path]] = {}  # absolute newest path -> old paths, recent first
+        self._folded: Dict[str, Path] = {}
+        if self._in_root is None:
+            return
+        for new, was in _chain(steps).items():
+            new_abs = self._in_root(new)
+            if new_abs is None:
+                continue
+            olds = [p for p in map(self._in_root, was) if p is not None]
+            if olds:
+                self.olds[new_abs] = olds
+            for old in olds:
+                self.renames[old] = new_abs
+        self._folded = {_key(old): new for old, new in self.renames.items()}
+
+    def renamed(self, path: Path) -> Optional[Path]:
+        return self._folded.get(_key(path))
+
+    def load_history(self) -> bool:
+        """Read committed renames and tracked paths, once. True only on the call that read them."""
+        if self.complete or self._in_root is None:
+            return False
+        self.complete = True
+        committed, touched = _committed(self._root)
+        index = _git(self._root, "ls-files", "-z", "--full-name") or b""
+        in_index = {os.fsdecode(p) for p in index.split(b"\0") if p}
+        self._tracked = {_key(p) for p in map(self._in_root, touched | in_index) if p is not None}
+        self._held = {_key(p) for p in map(self._in_root, in_index - self._new) if p is not None}
+        self._set_renames(committed + self._staged)
+        return True
+
+    def was_tracked(self, path: Path) -> bool:
+        """Git ever had this path: in HEAD or the index, or touched by a commit."""
+        self.load_history()
+        return _key(path) in self._tracked
+
+    def has(self, path: Path) -> bool:
+        """Git has a file at this path already (in HEAD and the index), so it isn't where a
+        moved file went."""
+        self.load_history()
+        return _key(path) in self._held
+
+
+def _key(path: Path) -> str:
+    return paths.fold(os.path.normpath(str(path)))
+
+
+def git_renames(root: Root) -> Dict[Path, Path]:
+    """Staged renames in the root's git work tree: absolute old path -> absolute new path."""
+    return GitView(root).renames
 
 
 def is_broken(root: Root, note: Path, link: Link) -> bool:
@@ -155,50 +227,60 @@ def _shared_tail(a: List[str], b: List[str]) -> int:
     return n
 
 
-def _by_filename(root: Root, named: Path) -> Optional[Path]:
-    """The one file of that name sharing the most trailing path segments, or None."""
+def _by_filename(
+    root: Root, named: Path, allowed: Callable[[Path], bool] = lambda path: True,
+) -> Tuple[Optional[Path], bool]:
+    """Of the allowed files with that name, the one sharing the most trailing path segments
+    (None on a tie), and whether any file was allowed."""
     if not named.name:
-        return None
+        return None, False
     wanted = paths.fold(named.name)
     tail = _segments(root, named)
     scored = []
     for cand in dict.fromkeys(root.by_name.get(wanted, [])):
-        if paths.fold(cand.name) == wanted and cand.is_file():
+        if paths.fold(cand.name) == wanted and cand.is_file() and allowed(cand):
             scored.append((_shared_tail(_segments(root, cand), tail), cand))
     if not scored:
-        return None
+        return None, False
     best = max(s for s, _ in scored)
     winners = [c for s, c in scored if s == best]
-    return winners[0] if len(winners) == 1 else None
+    return (winners[0] if len(winners) == 1 else None), True
 
 
 def _renamed_target(
-    root: Root, note: Path, link: Link,
-    renames: Dict[Path, Path], reverse: Dict[Path, Path],
+    root: Root, note: Path, link: Link, git: GitView,
 ) -> Tuple[Optional[Path], Path]:
-    """Steps 1 and 2 of the repair order that need no search: where the link points once the
-    note's own move is accounted for, or where git renamed its target. Also returns the path
-    the link names, for the by-name step."""
-    old_note = reverse.get(note)  # where this note was before git moved it
-    base = old_note or note
-    if old_note is not None:
+    """Step 1 of the repair order: where the link points once the note's own recorded move is
+    accounted for, or where git renamed its target. Also returns the path the link names,
+    for the by-name step."""
+    olds = git.olds.get(note, [])  # where this note was before git moved it, most recent first
+    for old_note in olds:
         found = resolve.md_target(root, old_note, link.target).path
         if found is not None:
-            return found, base
-    named = _named(root, base, link.target)
-    moved = renames.get(named)
+            return found, old_note
+    named = _named(root, olds[0] if olds else note, link.target)
+    moved = git.renamed(named)
     if moved is not None and moved.is_file():
         return moved, named
     return None, named
 
 
-def _new_wikilink(
-    root: Root, old_root: Root, renames: Dict[Path, Path], link: Link
-) -> Optional[str]:
+def _old_root(root: Root, git: GitView) -> Optional[Root]:
+    """The root's files with each renamed one back at its earlier paths, for frontmatter
+    wikilinks written before the rename."""
+    if not git.renames:
+        return None
+    kept = [p for p in root.notes + root.files if p not in git.olds]
+    return rootmod.index(root.path, root.exclude, list(dict.fromkeys(kept + list(git.renames))))
+
+
+def _new_wikilink(root: Root, old_root: Optional[Root], git: GitView, link: Link) -> Optional[str]:
+    if old_root is None:
+        return None
     hits = resolve.wikilink(old_root, link.target)
     if len(hits) != 1:
         return None
-    new = renames.get(hits[0])
+    new = git.renames.get(hits[0])
     if new is None:
         return None
     name = wiki_name(root, new, "/" in link.target.strip("/"))
@@ -212,14 +294,13 @@ def _new_wikilink(
 def relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]:
     """Repair broken links after moves made outside mv. Returns the changes made (or that
     would be) and an error finding for each broken link left."""
-    renames = git_renames(root)
-    reverse = {new: old for old, new in renames.items()}
-    old_root = None
-    if renames:
-        old_paths = [reverse.get(p, p) for p in root.notes + root.files]
-        old_root = rootmod.index(root.path, root.exclude, old_paths)
+    git = GitView(root)
+    old_roots: Dict[bool, Optional[Root]] = {}  # keyed by whether git history was read
 
-    deleted: Optional[Set[Path]] = None  # read once, and only if a link gets to the by-name step
+    def old_root() -> Optional[Root]:
+        if git.complete not in old_roots:
+            old_roots[git.complete] = _old_root(root, git)
+        return old_roots[git.complete]
 
     changes: List[Change] = []
     findings: List[Finding] = []
@@ -236,17 +317,20 @@ def relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]:
             new: Optional[str] = None
             message = "wikilink matches no file" if link.in_frontmatter else "broken link"
             if link.in_frontmatter:
-                if old_root is not None:
-                    new = _new_wikilink(root, old_root, renames, link)
+                new = _new_wikilink(root, old_root(), git, link)
+                if new is None and git.load_history():  # committed renames too, read once
+                    new = _new_wikilink(root, old_root(), git, link)
             else:
-                target, named = _renamed_target(root, note, link, renames, reverse)
-                if target is None:
-                    if deleted is None:
-                        deleted = git_deleted(root)
-                    if named in deleted:
+                target, named = _renamed_target(root, note, link, git)
+                if target is None and git.load_history():
+                    target, named = _renamed_target(root, note, link, git)
+                if target is None and git.was_tracked(named):
+                    # a move leaves the file where git hasn't recorded it; a deletion doesn't
+                    target, any_new = _by_filename(root, named, lambda p: not git.has(p))
+                    if not any_new:
                         message = "broken link (deleted in git)"
-                    else:
-                        target = _by_filename(root, named)
+                elif target is None:
+                    target, _ = _by_filename(root, named)
                 if target is not None:
                     new = parse.replace_target(link, paths.encode(paths.relative(note, target)))
             if new is None or new == link.raw:

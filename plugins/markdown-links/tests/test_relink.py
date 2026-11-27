@@ -108,6 +108,11 @@ class RelinkTests(unittest.TestCase):
 
     DELETED = {"Old/Tasks.md": "", "Tasks.md": "", "Notes/a.md": "[t](../Old/Tasks.md)\n"}
 
+    def assert_tracked_not_new(self, deleted, kept):
+        view = relink.GitView(self.load())
+        self.assertTrue(view.was_tracked(self.base / deleted))
+        self.assertTrue(view.has(self.base / kept))
+
     def assert_left_as_deleted(self):
         changes, findings = relink.relink_all(self.load(), False)
         self.assertEqual(changes, [])
@@ -120,7 +125,7 @@ class RelinkTests(unittest.TestCase):
     def test_relink_skips_git_rm(self):
         self.git_repo(self.DELETED)
         self.git("rm", "-q", "Old/Tasks.md")
-        self.assertEqual(relink.git_deleted(self.load()), {self.base / "Old/Tasks.md"})
+        self.assert_tracked_not_new("Old/Tasks.md", "Tasks.md")
         self.assert_left_as_deleted()
         self.assertEqual(relink.count_broken(self.load()), 1)
 
@@ -129,7 +134,7 @@ class RelinkTests(unittest.TestCase):
         self.git_repo(self.DELETED)
         self.git("rm", "-q", "Old/Tasks.md")
         self.git("commit", "-q", "-m", "remove")
-        self.assertEqual(relink.git_deleted(self.load()), {self.base / "Old/Tasks.md"})
+        self.assert_tracked_not_new("Old/Tasks.md", "Tasks.md")
         self.assert_left_as_deleted()
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
@@ -137,7 +142,9 @@ class RelinkTests(unittest.TestCase):
         self.git_repo({"People/Jane Doe.md": "", "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
         (self.base / "Archive").mkdir()
         os.rename(self.base / "People/Jane Doe.md", self.base / "Archive/Jane Doe.md")
-        self.assertEqual(relink.git_deleted(self.load()), set())
+        view = relink.GitView(self.load())
+        self.assertTrue(view.was_tracked(self.base / "People/Jane Doe.md"))
+        self.assertFalse(view.has(self.base / "Archive/Jane Doe.md"))
         changes, findings = relink.relink_all(self.load(), False)
         self.assertEqual(findings, [])
         self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
@@ -148,7 +155,11 @@ class RelinkTests(unittest.TestCase):
         (self.base / "Archive").mkdir()
         self.git("mv", "People/Jane Doe.md", "Archive/Jane Doe.md")
         self.git("commit", "-q", "-m", "move")
-        self.assertEqual(relink.git_deleted(self.load()), set())
+        view = relink.GitView(self.load())
+        self.assertEqual(view.renames, {})  # committed renames wait for load_history
+        self.assertTrue(view.load_history())
+        self.assertEqual(view.renames,
+                         {self.base / "People/Jane Doe.md": self.base / "Archive/Jane Doe.md"})
         changes, findings = relink.relink_all(self.load(), False)
         self.assertEqual(findings, [])
         self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
@@ -158,11 +169,18 @@ class RelinkTests(unittest.TestCase):
         self.git_repo({"People/Jane Doe.md": "", "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
         (self.base / "Archive").mkdir()
         self.git("mv", "People/Jane Doe.md", "Archive/Jane Doe.md")
-        self.assertEqual(relink.git_deleted(self.load()), set())
+        view = relink.GitView(self.load())
+        self.assertFalse(view.has(self.base / "Archive/Jane Doe.md"))
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
 
-    def test_git_deleted_empty_without_git_work_tree(self):
+    def test_git_view_empty_without_git_work_tree(self):
         self.make({"a.md": ""})
-        self.assertEqual(relink.git_deleted(self.load()), set())
+        view = relink.GitView(self.load())
+        self.assertFalse(view.load_history())
+        self.assertFalse(view.was_tracked(self.base / "a.md"))
+        self.assertEqual(view.renames, {})
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_committed_log_runs_once_and_only_when_needed(self):
@@ -184,6 +202,94 @@ class RelinkTests(unittest.TestCase):
         self.git("checkout", "-q", "HEAD", "--", "Old/Tasks.md")
         relink.relink_all(self.load(), True)
         self.assertEqual(sum(a[0] == "log" for a in calls), 0)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_shell_rm_not_repointed(self):
+        self.git_repo({"ProjectA/README.md": "[Tasks](Tasks.md)\n", "ProjectA/Tasks.md": "a\n",
+                       "ProjectB/Tasks.md": "b\n"})
+        os.remove(self.base / "ProjectA/Tasks.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(changes, [])
+        self.assertEqual([(f.file, f.line, f.message) for f in findings],
+                         [("ProjectA/README.md", 1, "broken link (deleted in git): [Tasks](Tasks.md)")])
+        self.assertEqual(self.read("ProjectA/README.md"), "[Tasks](Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_shell_mv_prefers_the_file_git_does_not_have(self):
+        # Old/Jane Doe.md ties on trailing segments, but git has it at its path; the move's
+        # destination is untracked, so it is the only candidate.
+        self.git_repo({"People/Jane Doe.md": "j\n", "Old/Jane Doe.md": "o\n",
+                       "Notes/a.md": "[j](../People/Jane%20Doe.md)\n"})
+        (self.base / "Archive").mkdir()
+        os.rename(self.base / "People/Jane Doe.md", self.base / "Archive/Jane Doe.md")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[j](../Archive/Jane%20Doe.md)\n")
+
+    NOTE_TEXT = "Some text long enough for git to see the rename.\nA second line.\n"
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_committed_shell_rename(self):
+        self.git_repo({"People/Jane Doe.md": self.NOTE_TEXT, "Projects/Tasks.md": self.NOTE_TEXT + "t\n",
+                       "Notes/a.md": "[j](../People/Jane%20Doe.md) [t](../Projects/Tasks.md)\n"})
+        (self.base / "Archive/Old").mkdir(parents=True)
+        os.rename(self.base / "People/Jane Doe.md", self.base / "Archive/Jane Smith.md")
+        os.rename(self.base / "Projects/Tasks.md", self.base / "Archive/Old/Tasks.md")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "move")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"),
+                         "[j](../Archive/Jane%20Smith.md) [t](../Archive/Old/Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_chained_committed_renames(self):
+        self.git_repo({"A.md": self.NOTE_TEXT, "Notes/n.md": "[x](../A.md)\n"})
+        self.git("mv", "A.md", "B.md")
+        self.git("commit", "-q", "-m", "a to b")
+        (self.base / "Later").mkdir()
+        self.git("mv", "B.md", "Later/C.md")
+        self.git("commit", "-q", "-m", "b to c")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/n.md"), "[x](../Later/C.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_never_tracked_bare_filename_by_name(self):
+        self.git_repo({"Notes/a.md": "[Tasks](Tasks.md)\n", "ProjectB/Tasks.md": "b\n"})
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[Tasks](../ProjectB/Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_frontmatter_after_committed_rename(self):
+        self.git_repo({"Old Name.md": self.NOTE_TEXT,
+                       "Notes/a.md": '---\nabout: "[[Old Name|the note]]"\n---\nBody.\n'})
+        self.git("mv", "Old Name.md", "New Name.md")
+        self.git("commit", "-q", "-m", "rename")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), '---\nabout: "[[New Name|the note]]"\n---\nBody.\n')
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_no_commits_yet_uses_never_tracked_rules(self):
+        self.make({"Notes/a.md": "[t](../Research/Tasks.md)\n", "Archive/Research/Tasks.md": ""})
+        self.git("init", "-q")
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("Notes/a.md"), "[t](../Archive/Research/Tasks.md)\n")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_relink_without_git_on_path_uses_never_tracked_rules(self):
+        self.git_repo({"ProjectA/README.md": "[Tasks](Tasks.md)\n", "ProjectA/Tasks.md": "a\n",
+                       "ProjectB/Tasks.md": "b\n"})
+        os.remove(self.base / "ProjectA/Tasks.md")
+        real = relink.shutil.which
+        relink.shutil.which = lambda name: None
+        self.addCleanup(setattr, relink.shutil, "which", real)
+        changes, findings = relink.relink_all(self.load(), False)
+        self.assertEqual(findings, [])
+        self.assertEqual(self.read("ProjectA/README.md"), "[Tasks](../ProjectB/Tasks.md)\n")
 
     def test_relink_folder_by_suffix(self):
         self.make({"Research/Tasks.md": "", "Tasks.md": "", "Notes/a.md": "[t](../Research/Tasks.md)\n"})
@@ -210,8 +316,9 @@ class RelinkTests(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_relink_same_folder_git_rm_not_repointed(self):
-        self.git_repo({"Decisions.md": "", "Home.md": "[Decisions](Decisions.md)\n"})
-        self.make({"Ideas/Old/Decisions.md": ""})
+        # Ideas/Old/Decisions.md is tracked at its own path, so it isn't where Decisions.md went.
+        self.git_repo({"Decisions.md": "", "Home.md": "[Decisions](Decisions.md)\n",
+                       "Ideas/Old/Decisions.md": ""})
         self.git("rm", "-q", "Decisions.md")
         changes, findings = relink.relink_all(self.load(), False)
         self.assertEqual(changes, [])
