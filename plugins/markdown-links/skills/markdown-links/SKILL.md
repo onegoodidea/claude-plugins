@@ -57,6 +57,10 @@ python3 "<base>/scripts/markdown-links.py" check <root>
 
 The hook prints `error:` lines with a file, a line, and what is wrong. Fix the link each line names. Don’t silence the hook or edit its settings. Warnings (an unresolved wikilink, a missing heading) are left for the owner.
 
+## Links to deleted notes
+
+`relink` never rewrites a link to a note deleted on purpose. It stays as `broken link (deleted in git)` in the body, or `wikilink matches no file` in frontmatter. The hook keeps flagging an edited note that holds one. That’s expected until the user decides, so don’t change the link unasked. At the end of the work, list these links and ask what each should become: removed along with its text, kept as plain text without the link, left as is, or pointed at another file (get the new target from `link`). Do only what the user chooses. In a non-interactive run, leave them and put the list in the run report.
+
 ## Bulk edits
 
 After editing many notes, run `check` on the root and fix every error:

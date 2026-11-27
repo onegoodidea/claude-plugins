@@ -132,7 +132,7 @@ Moves done outside the script (shell `mv`, `git mv`, a file manager) aren’t ca
 
 ### `relink [root] [--dry-run] [--json]`
 
-Repairs links broken by moves made outside `mv`: body Markdown links whose target is gone, and frontmatter wikilinks that match no note. It reads staged renames from git when the root is in a work tree, and otherwise looks for the one file with the same name. It prints one line per link it changes, then an error for each broken link it couldn’t repair. With `--dry-run` it writes nothing.
+Repairs links broken by moves made outside `mv`: body Markdown links whose target is gone, and frontmatter wikilinks that match no note. It reads staged renames from git when the root is in a work tree, and otherwise looks for the one file with the same name. It prints one line per link it changes, then an error for each broken link it couldn’t repair. With `--dry-run` it writes nothing. It never rewrites a link to a file deleted in git (reported as `broken link (deleted in git)`); the skill has Claude list those links and ask what to do with each.
 
 ```
 markdown-links.py relink --dry-run ~/Notes
