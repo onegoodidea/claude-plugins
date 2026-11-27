@@ -1,6 +1,6 @@
 # markdown-links: design
 
-Status: approved 2026-11-26.
+Status: approved 2026-11-26. Amended 2026-11-27: `relink` and the hook after `Bash` moves.
 
 ## Intent
 
@@ -100,6 +100,10 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
   - when a note’s filename changes, frontmatter wikilinks to it (`[[Old]]`, `[[Old|x]]`, `[[Old#h]]`) and any remaining body wikilinks to it are updated everywhere in the root. If the new name is shared with another note, the rewritten wikilinks are path-qualified so they stay unambiguous;
   - when a move or rename makes an existing bare wikilink ambiguous (a second `Tasks.md` arrives where one was), those wikilinks are path-qualified to the note they pointed at before.
   It refuses, changing nothing, if the destination exists or leaves the root. It computes every edit before touching the disk. `--dry-run` lists the move and every edit. Inside a git work tree it moves with `git mv` so history follows; otherwise with a plain rename. It prints every file it changed.
+- **`relink [root]`** repairs links left broken by a move made some other way: `git mv`, shell `mv`, a file manager, or a notes app. It works on a whole root, like `convert`. For each body Markdown link (inline, image, or reference definition) whose target doesn’t exist, it looks for where the file went, in this order:
+  1. **A rename git recorded.** Inside a git work tree, staged renames (what `git mv` leaves until the next commit) map old paths to new ones. A link to an old path is pointed at the new one. A note that was itself renamed has its links read from its old location first, so its outgoing links are repaired too.
+  2. **The same filename.** Otherwise, the files in the root with the target’s filename (case-insensitive, Unicode-normalized). Of those, the one that shares the most trailing path segments with the path the link used to name wins. After `Research/` moves under `Archive/`, a link to `Research/Tasks.md` goes to `Archive/Research/Tasks.md`, not to a root `Tasks.md`. A tie, or no file of that name, leaves the link alone and reports it.
+  A frontmatter wikilink that matches no note is repaired only from a recorded git rename: `[[Old]]` becomes `[[New]]`, keeping any alias or heading, path-qualified if the new name is shared. Renames already committed aren’t consulted; a renamed file whose rename git no longer holds is reported, not guessed. Rewritten links are note-relative and encoded; link text, anchors, and every other byte stay as written. `--dry-run` lists changes without writing. Output matches `convert`: one line per change (`relinked <file>:<line>: <old> -> <new>`, or `would relink` on a dry run), a count line, then the broken links it couldn’t repair as `error:` lines. Exits `1` if any broken link remains (on a dry run, if any was there to begin with).
 
 ### The hook
 
@@ -107,13 +111,16 @@ A **root** is a folder containing `.markdown-links.json`. Every command resolves
 
 A single-file check has to finish in about a second on a root of 5,000 notes. That covers walking the root to build the filename index.
 
+The hook also runs after `Bash`, to catch moves Claude makes from the shell. It costs nothing unless the command contains `mv` as a command word (`mv …` or `git mv …`, found by a pattern match on the command text) and doesn’t run `markdown-links.py`, which keeps links right on its own. When it does, it finds the roots at or above the payload’s `cwd` and at or above each path in the command that exists after it ran (or whose parent folder does), up to 5 roots. In each, it counts the broken links `relink` repairs: body links whose target doesn’t exist and frontmatter wikilinks that match no note. If any root has some, it exits `2` with one line per such root and nothing else: `markdown-links: <N> broken links in <root>; run: python3 "<script>" relink "<root>"`. It never lists the links themselves (`relink` does), so a move costs Claude one line, and a clean move costs nothing. It has to finish in 2 seconds on a root of 5,000 notes.
+
 ### The skill
 
 `skills/markdown-links/SKILL.md`, with the script alongside it at `skills/markdown-links/scripts/markdown-links.py`, so the skill can name it by its own base directory and the hook by `${CLAUDE_PLUGIN_ROOT}`. The skill’s description triggers on writing, editing, linking, moving, or renaming Markdown notes, or a folder containing `.markdown-links.json`. Its body:
 
 - the link rules above, briefly;
 - to write a body link, run `link` instead of composing the path by hand;
-- to move or rename a note or folder, run `mv`, never shell `mv`, `git mv`, or a file-manager move;
+- to move or rename a note or folder, run `mv`, which uses `git mv` for tracked files and rewrites links; never shell `mv`;
+- if a move happened some other way (`git mv`, a file manager, a notes app), or the hook names `relink` after a shell command, run `relink` on the root, then `check`;
 - after a hook error, fix the link the error names; don’t silence the hook;
 - run `check` on the root after bulk edits;
 - to bring a new folder in: `init`, then `convert --dry-run`, review, `convert`, then `check`.
@@ -141,6 +148,8 @@ A single-file check has to finish in about a second on a root of 5,000 notes. Th
 - `check` flags each error and warning class, and the hook exits `2` on errors and `0` otherwise.
 - `mv` of a file, a rename, and a folder move each leave `check` clean; refusals change nothing; `--dry-run` writes nothing.
 - `link` output resolves from notes at several depths.
+- `relink` repairs a `git mv` rename (body and frontmatter links, and the renamed note’s own links), a shell-moved folder by trailing-path match, and a moved note’s outgoing links; leaves a tie alone; writes nothing on `--dry-run`; preserves CRLF and a BOM; works outside git.
+- The `Bash` hook is silent for a command without `mv` even in a root with broken links, names `relink` in one line after a move that broke links, is silent after a clean move and after `markdown-links.py` commands, and ignores odd payloads.
 
 ## Left to the builder
 

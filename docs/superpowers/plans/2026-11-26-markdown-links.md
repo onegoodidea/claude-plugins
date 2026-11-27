@@ -384,3 +384,75 @@ Plan algorithm:
 - [ ] **Step 4: Install locally and smoke-test.** Run `claude plugin marketplace add <path to this worktree>` (or point an existing marketplace at the worktree), then install `markdown-links`. In a new session, in a scratch root, ask Claude to write a note that links to another note. Expected: the skill loads, and the note it writes uses a relative Markdown link. Then ask it to write `[[Other]]` by hand. Expected: the hook’s error shows up in that turn.
 - [ ] **Step 5: Run** `python3 -m unittest discover -s tests -v` one last time. Expected: all pass.
 - [ ] **Step 6: Commit** with `git add -A plugins/markdown-links .claude-plugin README.md && git commit -m "markdown-links: skill, plugin manifest, README, and marketplace entry"`.
+
+### Task 10: `relink`
+
+Added 2026-11-27 with the spec amendment. Spec: the `relink` bullet under Commands.
+
+**Files:**
+- Create: `mdlinks/relink.py`; Modify: `mdlinks/cli.py` (a `relink [root] [--dry-run]` subcommand, `--json` like `convert`)
+- Test: `tests/test_relink.py`
+
+**Interfaces:**
+- Consumes: `convert.Change` (reuse it; don't define a second change type), `parse.find_links`, `parse.replace_target`, `parse.read`/`parse.write` (BOM-preserving), `resolve.md_target`, `resolve.wikilink`, `paths.relative`/`encode`/`decode`/`fold`, and `move._wiki_name` for frontmatter names (make it public as `move.wiki_name` if you use it from here).
+- Produces:
+  - `relink.git_renames(root: Root) -> Dict[Path, Path]`: staged renames, absolute old path to absolute new path, from `git -C <root> status --porcelain=v1 -z` (`R` entries; with `-z` each is `R  <new>\0<old>\0`). Empty when git is missing, the root isn’t in a work tree, or there are none. Paths outside the root are dropped.
+  - `relink.is_broken(root: Root, note: Path, link: Link) -> bool`: True for a body Markdown link (kinds `md`, `image`, `refdef`, non-empty target, not external) whose target `resolve.md_target` can’t find, and for a frontmatter wikilink that `resolve.wikilink` matches to no file. This is the one definition of “broken” that `relink`, its leftover report, and Task 11’s hook all use.
+  - `relink.count_broken(root: Root) -> int`.
+  - `relink.relink_all(root: Root, dry_run: bool) -> Tuple[List[Change], List[Finding]]`: the changes made (or that would be), and one `error` finding per broken link left, with the same message `check` gives for it (`broken link: …` or `wikilink matches no file: …`).
+
+**Repair rules** (from the spec; the order matters):
+1. Old location of the link: if the note is a rename target in `git_renames`, resolve the link from the note’s old path first. If that resolves to an existing file, or to an old path in the rename map, the new target is that file (or its new path).
+2. Otherwise, if the path the link names (decoded, joined to the note’s folder, normalized, root-relative) is an old path in the rename map, use the new path.
+3. Otherwise, by filename: candidates are `root.by_name[paths.fold(filename)]`. Score each by the count of trailing path segments (folded) it shares with the path the link names. The single highest score wins; a tie, or no candidates, leaves the link and reports it.
+4. Frontmatter wikilinks use the rename map only: when the old note it would have matched (by name against the old paths) was renamed, write the new name, path-qualified when the new name resolves to more than one note.
+- The rewritten target is `paths.encode(paths.relative(note, new))`, plus `#` and the anchor as written. Write it with `parse.replace_target`, so angle brackets, link text, and titles stay.
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_relink.py` (git tests skip when `git` isn’t on PATH; set `user.name`/`user.email` with `-c` on the commit):
+  - `test_relink_git_rename`: a git repo with `Notes/Call.md` linking to `People/Jane%20Doe.md` and frontmatter `with: "[[Jane Doe]]"`, and `People/Jane Doe.md` linking back to `../Notes/Call.md`; commit; `git mv "People/Jane Doe.md" "Archive/Jane Smith.md"`. After `relink_all`, Call.md has `[Jane](../Archive/Jane%20Smith.md)` and `with: "[[Jane Smith]]"`, the moved note’s back link is `../Notes/Call.md` unchanged, and `count_broken` is 0.
+  - `test_relink_git_rename_outgoing`: `git mv Notes/Call.md Archive/Notes/Deep/Call.md`; its link to `People/Jane Doe.md` is rewritten to `../../../People/Jane%20Doe.md`.
+  - `test_relink_folder_by_suffix`: no git; `Research/Tasks.md` and root `Tasks.md`; `Notes/a.md` links to `../Research/Tasks.md`; move `Research` to `Archive/Research` with `os.rename`. The link becomes `../Archive/Research/Tasks.md`.
+  - `test_relink_tie_left_alone`: two moved candidates with equal scores; the link is unchanged and reported as one `error` finding with `broken link:`.
+  - `test_relink_no_candidate_reported`: a link to a deleted file stays, reported.
+  - `test_relink_dry_run_writes_nothing`: file bytes identical after, changes listed.
+  - `test_relink_preserves_bytes`: a CRLF file with a BOM keeps both; only the target changes; an anchor `#Some%20Heading` and an angle-bracket target `<../People/Jane Doe.md>` survive.
+  - `test_relink_cli`: `relink` on a clean root prints `relinked 0 links in 0 files` and exits 0; with a leftover broken link exits 1; `--dry-run` prints `would relink …` lines; on a subfolder it refuses with exit 1, like `convert`.
+- [ ] **Step 2: Run** `python3 -m unittest tests.test_relink -v`. Expected: fails.
+- [ ] **Step 3: Implement** `relink.py` and the CLI subcommand. Output text matches `convert`’s shape: per-change lines, `relinked <N links> in <M files>` (or `would relink`), then the leftover `error:` lines.
+- [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v`. Expected: all pass.
+- [ ] **Step 5: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: relink repairs links after moves made outside mv"`.
+
+### Task 11: Hook after `Bash` moves, and docs
+
+Spec: the second paragraph of The hook, and the amended skill bullets.
+
+**Files:**
+- Modify: `mdlinks/hook.py`, `hooks/hooks.json`, `skills/markdown-links/SKILL.md`, `README.md`
+- Test: `tests/test_hook.py`
+
+**Interfaces:**
+- Consumes: `relink.count_broken(root)` from Task 10; `root.find_root`, `root.load`.
+- Produces: `hook.run(payload_text)` dispatches on `tool_name`: `"Bash"` goes to the new path; everything else keeps today’s behavior unchanged. Still `(0, "")` on any exception.
+
+**Bash path:**
+- `command = tool_input.command`. Return `(0, "")` unless `re.search(r"(?:^|[\s;&|(])(?:git\s+)?mv\s", command)` matches, and also when `"markdown-links.py"` is in the command. No filesystem access before this test.
+- Candidate folders: the payload `cwd`, and for each word of `shlex.split(command)` (fall back to `command.split()` on `ValueError`), the word joined to `cwd` if it exists (its folder when it’s a file), else its parent folder if that exists. Find each one’s root; keep unique roots in order, at most 5.
+- For each root with `count_broken(root) > 0`, one line: `markdown-links: <N> broken links in <root path>; run: python3 "<absolute path of markdown-links.py>" relink "<root path>"` (`1 broken link` when N is 1). Any lines: `(2, lines joined with "\n" + "\n")`. None: `(0, "")`.
+
+`hooks/hooks.json` gains a second `PostToolUse` entry with `"matcher": "Bash"` and the same command.
+
+**Docs:**
+- `SKILL.md`: replace the move bullet with the spec’s two amended bullets (use `mv`, which uses `git mv` for tracked files; never shell `mv`; after `git mv`, a file manager, a notes app, or a hook message naming `relink`: run `relink` on the root, then `check`). Add `relink` to the commands line. Stay under 80 lines.
+- `README.md`: add `relink` to the commands with one example, and one line on the `Bash` hook.
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_hook.py`:
+  - `test_bash_hook_ignores_non_moves`: a root with a broken link; payload `{"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "cwd": <root>}` returns `(0, "")`.
+  - `test_bash_hook_names_relink`: after `os.rename` breaks one link, a payload with command `mv "People/Jane Doe.md" Archive/` and `cwd` the root returns 2 and exactly one line containing `1 broken link` and `relink`.
+  - `test_bash_hook_finds_root_from_path`: `cwd` outside any root, command `git mv /abs/root/a.md /abs/root/Archive/a.md`: the root is found from the path.
+  - `test_bash_hook_clean_move_silent` and `test_bash_hook_skips_own_script` (a command containing `markdown-links.py mv`): `(0, "")`.
+  - `test_bash_hook_odd_payloads`: missing `command`, non-string `command`, unbalanced quotes (`mv "a b`), and a `cwd` that doesn’t exist each return `(0, "")` or the one-line message, never a traceback.
+- [ ] **Step 2: Run** `python3 -m unittest tests.test_hook -v`. Expected: the new tests fail.
+- [ ] **Step 3: Implement** the Bash path, `hooks.json`, and the docs.
+- [ ] **Step 4: Run** `python3 -m unittest discover -s tests -v` and `grep -rniw vault plugins/markdown-links`. Expected: all pass; no grep output.
+- [ ] **Step 5: Time it.** The 5,000-note root from Task 8 (3 links each), one link broken, `mv` payload: median of 5 runs of `python3 …/markdown-links.py hook` at most 2.0 seconds. Also time a non-`mv` payload: median at most 0.1 seconds. Record both in the commit message.
+- [ ] **Step 6: Commit** with `git add -A plugins/markdown-links && git commit -m "markdown-links: hook after Bash moves names relink (median <N>s on 5,000 notes)"`.
